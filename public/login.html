@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>labber-pve</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="login-shell">
+    <div class="login-box">
+      <div class="brand">LABBER-PVE</div>
+      <div class="brand-sub">Proxmox lab builder</div>
+      <form id="login-form">
+        <input id="username" type="text" placeholder="username" autocomplete="username" autofocus />
+        <input id="password" type="password" placeholder="password" autocomplete="current-password" />
+        <button type="submit">connect</button>
+        <div id="error" class="login-error"></div>
+      </form>
+    </div>
+  </div>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const errorEl = document.getElementById('error');
+      errorEl.textContent = '';
+
+      try {
+        const res = await fetch('/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        if (!res.ok) {
+          errorEl.textContent = 'invalid credentials';
+          return;
+        }
+        window.location.href = '/';
+      } catch (err) {
+        errorEl.textContent = 'connection error';
+      }
+    });
+  </script>
+</body>
+</html>

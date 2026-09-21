@@ -1,0 +1,57 @@
+# Deliberately has no `securityContext.runAsUser` -- letting the cluster
+# assign it (k3s: whatever the image's USER is; OpenShift: its own random
+# non-root UID from the namespace's allowed range) is exactly what the
+# Dockerfile's chgrp/chmod g=u trick is for. Setting a fixed UID here would
+# undo that portability.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: labber-pve
+  labels:
+    app: labber-pve
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: labber-pve
+  template:
+    metadata:
+      labels:
+        app: labber-pve
+    spec:
+      containers:
+        - name: labber-pve
+          image: ghcr.io/roobir/labber-pve:latest # pin to a real :<commit-sha> or version tag in production
+          ports:
+            - containerPort: 8080
+            - containerPort: 8081 # lib/gui-proxy.js -- embedded node-GUI reverse proxy, off (404s) until Settings' GUI domain is set
+          envFrom:
+            - secretRef:
+                name: labber-pve-secrets
+          volumeMounts:
+            - name: labs
+              mountPath: /labs
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false # npm/node needs to write to a couple of paths; not worth the extra effort to lock this down further for a single-tenant homelab/office tool
+      volumes:
+        - name: labs
+          persistentVolumeClaim:
+            claimName: labber-pve-labs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: labber-pve
+spec:
+  selector:
+    app: labber-pve
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+    - name: gui-proxy
+      port: 8081
+      targetPort: 8081

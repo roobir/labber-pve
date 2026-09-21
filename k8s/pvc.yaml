@@ -1,0 +1,23 @@
+# Persists lab YAML files + deployed-state tracking (LABS_DIR) across pod
+# restarts/reschedules. storageClassName is k3s's own default
+# (local-path-provisioner) -- swap for whatever storage class OpenShift/your
+# office cluster provides; nothing else in this app assumes a specific
+# provisioner.
+#
+# Sized well above lab-state's own footprint (KB-scale) because
+# template-builder.js's qcow2 uploads land transiently under
+# LABS_DIR/.tmp/uploads before streaming on to Proxmox and being deleted --
+# peak usage is roughly the size of the single largest image being uploaded
+# at a time, not cumulative. Bump further if your golden images run larger
+# than a few GB.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: labber-pve-labs
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi

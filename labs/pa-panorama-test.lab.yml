@@ -1,0 +1,34 @@
+# Example topology: a Panorama manager plus two PA-VM firewalls, matching
+# the vcpu/memory sizing already validated to work on this Proxmox host in
+# the original libvirt-based labber project.
+#
+# `nodes:` clone from a golden template per `kind` (see lib/vendor-profiles.js
+# for the TEMPLATE_ID_* env vars each kind needs configured).
+# `links:` each get their own isolated vmbr bridge, unless `external: true`
+# points at an existing one (e.g. vmbr0 for real LAN/internet access).
+
+nodes:
+  panorama1:
+    kind: paloalto_panorama
+  pa-fw1:
+    kind: paloalto_panos
+  pa-fw2:
+    kind: paloalto_panos
+
+links:
+  # Management network -- reuses the node's real LAN bridge so these VMs are
+  # reachable from the rest of the homelab, not an isolated lab-only segment.
+  - name: mgmt
+    external: true
+    bridge: vmbr0
+    endpoints:
+      - { node: panorama1, interface: net0 }
+      - { node: pa-fw1, interface: net0 }
+      - { node: pa-fw2, interface: net0 }
+
+  # Inside segment between the two firewalls -- isolated, lab-only bridge,
+  # auto-provisioned and torn down with the rest of the lab.
+  - name: inside
+    endpoints:
+      - { node: pa-fw1, interface: net1 }
+      - { node: pa-fw2, interface: net1 }
