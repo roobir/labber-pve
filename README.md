@@ -25,12 +25,14 @@ privileged container.
   qcow2/raw/vmdk (or ISO) and the app builds + registers the Proxmox
   template for you, no SSH or host filesystem access needed.
 
-## Screenshots
+## Demo
 
 | | |
 |---|---|
-| ![New lab wizard](docs/screenshots/new-lab-wizard.jpg) Build a topology from a form — pick node kinds, wire interfaces together | ![Topology view](docs/screenshots/topology.jpg) Visualize any lab's wiring as a graph |
-| ![YAML editor](docs/screenshots/lab-yaml-editor.jpg) Every lab is also just a YAML file, editable directly | ![Login](docs/screenshots/login.jpg) Single-user (or multi-user) session auth in front of everything |
+| ![Login](docs/screenshots/login.gif) Single-user (or multi-user) session auth, then straight to the live dashboard | ![Embedded web UI](docs/screenshots/web-rp-f5.gif) `web rp` embeds a node's own real web UI in an iframe — here, F5 BIG-IP's TMUI |
+| ![Browser console](docs/screenshots/console-palo-alto.gif) Console access straight from Proxmox's own termproxy — no SSH, no separate VNC client | ![Topology graph](docs/screenshots/topology.gif) Visualize any lab's wiring as a graph, generated straight from its YAML |
+| ![New lab wizard](docs/screenshots/new-lab-wizard.jpg) Build a topology from a form — pick node kinds, wire interfaces together | ![YAML editor](docs/screenshots/lab-yaml-editor.jpg) Every lab is also just a YAML file, editable directly |
+| ![API relay](docs/screenshots/api-relay.gif) Reach a lab node's real management API through this app — for your own automation, not just the browser | |
 
 ## Quick start
 
