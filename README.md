@@ -24,6 +24,11 @@ privileged container.
 - **Build templates straight from the browser.** Upload a vendor's
   qcow2/raw/vmdk (or ISO) and the app builds + registers the Proxmox
   template for you, no SSH or host filesystem access needed.
+- **Runbooks: repeatable device setup.** First boot, passwords, static
+  IPs, licenses, module provisioning and config load/export for the
+  vendors above, driven over each device's serial console and management
+  API, versioned and shareable between engineers — and runnable
+  automatically right after a lab is deployed.
 
 ## Demo
 
@@ -51,6 +56,21 @@ docker build -t labber-pve .
 docker run -e DASHBOARD_PASSWORD_HASH=... -e SESSION_SECRET=... \
   -p 8080:8080 -v ./labs:/labs labber-pve
 ```
+
+Or run the published image (built by this repo's GitHub Actions workflow
+for amd64 and arm64) instead of building it yourself:
+
+```bash
+podman run -d --name labber-pve \
+  -e DASHBOARD_PASSWORD_HASH=... -e SESSION_SECRET=... \
+  -p 8080:8080 -p 8081:8081 -v labber-labs:/labs \
+  ghcr.io/roobir/labber-pve:latest
+```
+
+Everything the app creates (settings, users, the Store, runbooks, lab
+state) lives under `/labs`, so keep that volume across upgrades. To
+update, pull the new image and recreate the container. Pin a version tag
+(`:0.2.0`) rather than `:latest` for anything you depend on.
 
 k3s/OpenShift: `kubectl apply -f k8s/pvc.yaml`, fill in
 `k8s/secret-example.yaml` with real values and apply it as a Secret
@@ -94,6 +114,45 @@ a live preview before deploying). See `labs/pa-panorama-test.lab.yml`
 for a full example, or use the **+ new lab** wizard instead of
 hand-writing YAML.
 
+## Runbooks
+
+The **runbooks** window holds reusable, versioned automation that runs
+against a deployed node: type into its serial console (`expect`/`send`,
+or paste a whole config), call its REST/XML API (with polling and
+retries), save its management IP back onto the dashboard card, or
+read/write the **Store**. Steps are declarative YAML — no scripting — so
+a shared runbook can only do what those steps allow.
+
+- **Store** — named passwords, text blobs and per-node licenses
+  (registration key, license text, the UUID + MAC it was issued for).
+  Runbooks reference entries by name, never by value, and the license
+  runbook checks the node's identity before using one up.
+- **Versions** — a runbook is a draft until you lock it; a locked
+  version can't be edited or deleted in the app, and every locked
+  version stays runnable. New versions and copies start as drafts.
+- **Lab bootstrap** — list runbooks per node in the lab file and they
+  run right after deploy, nodes in parallel. A failed build is rolled
+  back; a failed bootstrap leaves the lab up so you can fix the cause
+  and resume from where it stopped. `vars:` let one lab file be copied
+  and re-pointed (bridges, license names).
+- **Shipped runbooks** (drafts — run them on your own templates, then
+  lock them): first boot (DHCP or static IP), license, provisioning and
+  config load/export for F5 BIG-IP; first boot and config load for
+  FortiGate/FortiManager, PAN-OS/Panorama, Nexus 9000v, Catalyst
+  8000V, and Cisco FTD/FMC. See [docs/RUNBOOKS.md](docs/RUNBOOKS.md).
+
+## Working as a team
+
+- **Console lock** — while a runbook is typing on a node's console,
+  opening that console shows who started it and offers an explicit
+  take-over, so a person and a script never type into one console at
+  once.
+- **Presence** — the header shows who else is logged in and which node
+  console they're on.
+- **Lab reservations** — one click puts a "Reserved by … until …"
+  banner on a lab. It is a notice, not a lock: nothing is blocked, and
+  anyone can extend, take over or release it.
+
 ## Reaching a node's web UI
 
 Once a node has a management IP (auto-detected via the QEMU guest
@@ -129,7 +188,14 @@ appliance management interfaces:
   [docs/ADVANCED.md](docs/ADVANCED.md)).
 - **Credentials at rest** (Proxmox tokens, user password hashes, relay
   token hashes) live in `0600`/`0700`-permission JSON files, not
-  encrypted, never echoed back to the browser once saved.
+  encrypted, never echoed back to the browser once saved. The **Store**
+  holds device passwords and license text the same way: plain JSON,
+  `0600`, readable in the UI by any logged-in user (a deliberate
+  trade-off for a lab tool — protect the host and the `/labs` volume
+  accordingly). Secrets are masked in runbook logs and run history.
+- **Runbooks run commands on your devices** with the credentials you
+  point them at. Every logged-in user can run, edit and lock runbooks;
+  there are no per-user roles.
 - **TLS to lab appliances is not verified** (`rejectUnauthorized:
   false`) — self-signed certs are the norm on appliance management
   interfaces.
@@ -139,6 +205,8 @@ appliance management interfaces:
 - [docs/ADVANCED.md](docs/ADVANCED.md) — remote stats API, the
   automation relay, building templates from a qcow2/ISO, disk storage
   setup, and the full `web rp` walkthrough.
+- [docs/RUNBOOKS.md](docs/RUNBOOKS.md) — runbooks, the Store, versions
+  and locking, lab bootstrap, and the shipped vendor runbooks.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module layout and
   known limitations.
 

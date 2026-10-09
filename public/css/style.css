@@ -602,7 +602,16 @@ a:hover { text-decoration: underline; }
   cursor: pointer;
 }
 
-.term-body { flex: 1; padding: 0.4rem; overflow: hidden; }
+.term-body { flex: 1; padding: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
+/* Terminal padding lives on the .xterm element, not on its container: the fit
+   addon sizes the terminal from the container's computed height (which, with
+   border-box, includes the container's own padding) minus only the .xterm
+   element's padding. Padding on the container made it over-count by ~13px, so
+   the last row was cut in half at some window heights.
+   The pane is also bottom-aligned (justify-content: flex-end): a terminal has a
+   whole number of rows, so up to one row of space is left over -- this puts it
+   above the first line instead of leaving a blank band under the newest one. */
+.term-body .xterm, .labs-output .xterm, .rb-console .xterm { padding: 0.4rem; }
 
 /* ---- labs modal ---- */
 
@@ -762,7 +771,7 @@ a:hover { text-decoration: underline; }
   border-bottom: 1px solid var(--border);
 }
 
-.labs-output { flex: 1; padding: 0.4rem; overflow: hidden; }
+.labs-output { flex: 1; padding: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
 
 /* ---- new-lab wizard ---- */
 

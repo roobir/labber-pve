@@ -1,0 +1,76 @@
+title: F5 BIG-IP first boot (console)
+vendor: f5_bigip_ve
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE.
+# The console prompts below follow F5's documented first-login behaviour but
+# have not been captured from this lab's template yet. Run it on a fresh
+# clone, watch the live console pane, and tighten the expects before locking.
+#
+# What it does: waits for the serial login prompt (booting takes minutes),
+# logs in with F5's factory credentials, answers the forced password change,
+# sets the same password on the REST/GUI "admin" account, reads the
+# DHCP-assigned management IP, and saves it on the node's dashboard card +
+# lab file so "web ui", "web rp" and the API relay can reach it.
+
+inputs:
+  - { id: target, type: target, kind: f5_bigip_ve, label: F5 node }
+  - { id: default_user, type: string, default: root, label: Factory console user }
+  - { id: default_password, type: string, default: default, label: Factory console password }
+  - { id: new_password, type: store, storeType: secret, default: password-simple, label: New password (from the Store) }
+
+steps:
+  - id: login
+    name: Wait for the login prompt and log in
+    console:
+      - expect: "login:"
+        timeout: 1200          # a cold F5 VE boot can take several minutes
+        nudge: 10              # press Enter now and then so a quiet console prints a prompt
+        send: "{{inputs.default_user}}"
+      - expect: "password:"
+        send: "{{inputs.default_password}}"
+
+  - id: change-password
+    name: Answer the forced password change
+    console:
+      - expect: "(current|old).*password:"
+        optional: true
+        timeout: 20
+        send: "{{inputs.default_password}}"
+      - expect: "new.*password:"
+        optional: true
+        timeout: 20
+        send: "{{inputs.new_password}}"
+      - expect: "(retype|confirm|re-enter).*password:"
+        optional: true
+        timeout: 20
+        send: "{{inputs.new_password}}"
+      - expect: "#\\s*$"       # root shell prompt
+        timeout: 60
+
+  - id: set-admin-password
+    name: Set the same password on the admin (GUI / REST) account
+    console:
+      - send: "tmsh modify auth user admin password '{{inputs.new_password}}'"
+      - expect: "#\\s*$"
+        timeout: 60
+
+  - id: detect-ip
+    name: Read the management IP
+    console:
+      - send: "ip -4 -o addr show mgmt"
+      - expect: "inet (\\d+\\.\\d+\\.\\d+\\.\\d+)/"
+        as: ip
+        timeout: 30
+      - expect: "#\\s*$"
+
+  - id: save-config
+    name: Save the F5 configuration
+    console:
+      - send: "tmsh save sys config"
+      - expect: "#\\s*$"
+        timeout: 120
+
+  - id: update-lab
+    name: Save the IP on the node in labber-pve
+    lab:
+      setMgmtIp: { ip: "{{steps.detect-ip.out.ip}}", port: 443 }

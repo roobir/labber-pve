@@ -9,6 +9,13 @@ lib/
   template-builder.js  -- uploaded qcow2 -> golden template, via PVE's import-from
   lab-manager.js       -- YAML-driven deploy/destroy orchestration + state tracking
   console-bridge.js    -- websocket proxy: browser <-> PVE termproxy/vncwebsocket
+  console-session.js   -- the PVE termproxy protocol itself, shared by the browser
+                            console and runbook console steps
+  console-locks.js     -- who is on which node's console (runbook vs people, takeover)
+  presence.js          -- who is logged in right now (header indicator)
+  runbooks/            -- runbook engine, library (versions/locking), Store, run manager
+                            (see docs/RUNBOOKS.md)
+  runbook-bridge.js    -- websocket: streams a run's steps/log/console to the browser
   lab-bridge.js         -- websocket: streams deploy/destroy progress to the dashboard
   gui-proxy.js           -- second HTTP listener: Host-header-routed reverse proxy
                             for embedding a node's own web UI in-dashboard ("web rp")
@@ -16,6 +23,7 @@ lib/
                             automation/API clients (see docs/ADVANCED.md)
   api-tokens.js          -- bearer tokens gating api-relay.js
   auth.js               -- session-based multi-user auth
+runbooks/builtin/       -- runbooks shipped in the image, seeded into app storage on boot
 public/                 -- dashboard frontend
 labs/                   -- your *.lab.yml topology files live here (bind-mounted/PVC'd in)
 k8s/                    -- Deployment/Service/PVC/Secret-template for k3s or OpenShift

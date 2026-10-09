@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Fetch and install a Palo Alto VM-Series license from an auth code stored in the Store."
+}

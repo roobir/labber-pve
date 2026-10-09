@@ -1,0 +1,77 @@
+title: F5 BIG-IP install a license from the Store (REST)
+vendor: f5_bigip_ve
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE. Uses the node's REST API, so it
+# needs a saved management IP and a working admin password (run f5-first-boot
+# first). The Store's license entry carries the registration key, the saved
+# license text, and the UUID + MAC it was issued for -- the first step stops
+# the run if this node's identity doesn't match, before using up a license.
+#
+#   online  : activate the registration key (the F5 must reach F5's licensing
+#             service over the internet)
+#   offline : write the saved license text to /config/bigip.license and run
+#             reloadlic (no internet needed)
+
+inputs:
+  - { id: target, type: target, kind: f5_bigip_ve, label: F5 node }
+  - { id: admin_user, type: string, default: admin, label: Admin user }
+  - { id: admin_password, type: store, storeType: secret, default: password-simple, label: Admin password }
+  - { id: license, type: store, storeType: license, label: License (from the Store) }
+  - { id: method, type: select, options: [online, offline], default: offline, label: Activation method }
+  - { id: reboot, type: select, options: ["no", "yes"], default: "no", label: Reboot afterwards }
+
+steps:
+  - id: check-identity
+    name: Check this node matches the license
+    lab:
+      assertIdentity: { uuid: "{{inputs.license.uuid}}", mac: "{{inputs.license.mac}}" }
+
+  - id: install-online
+    name: Activate the registration key
+    when: { path: inputs.method, equals: online }
+    http:
+      method: POST
+      path: /mgmt/tm/sys/license
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json: { command: install, registrationKey: "{{inputs.license.regkey}}" }
+      timeout: 180
+
+  - id: install-offline
+    name: Write the saved license and reload it
+    when: { path: inputs.method, equals: offline }
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: "-c 'echo {{inputs.license.licenseText | b64}} | base64 -d > /config/bigip.license && reloadlic'"
+      timeout: 180
+
+  - id: wait-licensed
+    name: Wait for the license to be active
+    http:
+      method: GET
+      path: /mgmt/tm/sys/license
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      poll: { every: 10, timeout: 300, initialDelay: 5, until: { status: 200, match: "registrationKey" } }
+
+  - id: reboot
+    name: Save config and reboot
+    when: { path: inputs.reboot, equals: "yes" }
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: "-c 'tmsh save sys config; (sleep 3; reboot) >/dev/null 2>&1 &'"
+
+  - id: wait-reboot
+    name: Wait for the F5 to come back
+    when: { path: inputs.reboot, equals: "yes" }
+    http:
+      method: GET
+      path: /mgmt/tm/sys/version
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      poll: { every: 15, timeout: 900, initialDelay: 60, until: { status: 200 } }

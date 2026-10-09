@@ -1,0 +1,80 @@
+title: Nexus 9000v first boot -- skip POAP, set the password, DHCP on mgmt0 (console)
+vendor: cisco_n9kv
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE. Follows Cisco's documented NX-OS
+# first boot: answer "yes" to "Abort Power On Auto Provisioning" (this skips
+# POAP's auto-configuration but still asks for the admin password -- "skip"
+# would bypass the password and leave you unable to log in), set the admin
+# password, decline the basic configuration dialog, log in, and configure
+# mgmt0. Do not press Enter while waiting: Enter at the POAP question picks
+# the default, "no", and POAP carries on.
+
+inputs:
+  - { id: target, type: target, kind: cisco_n9kv, label: Nexus 9000v node }
+  - { id: new_password, type: store, storeType: secret, default: password-complex, label: Admin password }
+
+steps:
+  - id: skip-poap
+    name: Skip auto provisioning (POAP) and set the admin password
+    console:
+      - expect: '\(yes/skip/no\)\s*\[no\]:'
+        timeout: 1800
+        send: 'yes'
+      - expect: 'enter the password for .{1,3}admin.{1,3}:'
+        timeout: 120
+        send: '{{inputs.new_password}}'
+      - expect: 'confirm the password for .{1,3}admin.{1,3}:'
+        timeout: 30
+        send: '{{inputs.new_password}}'
+      - expect: 'basic configuration dialog.*\(yes/no\):'
+        timeout: 120
+        send: 'no'
+
+  - id: login
+    name: Log in
+    console:
+      - expect: 'login:'
+        timeout: 600
+        send: admin
+      - expect: 'password:'
+        send: '{{inputs.new_password}}'
+      - expect: '#\s*$'
+        timeout: 120
+      - send: terminal length 0
+      - expect: '#\s*$'
+
+  - id: configure
+    name: Turn on DHCP for mgmt0
+    console:
+      - paste: |
+          configure terminal
+          interface mgmt0
+          ip address dhcp
+          no shutdown
+          end
+        failOn: '% Invalid command|% Incomplete command|% Ambiguous command|% Invalid'
+        settle: 3
+      - expect: '#\s*$'
+
+  - id: detect-ip
+    name: Read the management IP
+    console:
+      - sleep: 15                  # give DHCP a moment
+      - send: show ip interface brief vrf management
+      - expect: 'mgmt0\s+(?!unassigned)(\d+\.\d+\.\d+\.\d+)'
+        as: ip
+        timeout: 60
+      - expect: '#\s*$'
+
+  - id: save
+    name: Save the configuration
+    console:
+      - send: copy running-config startup-config
+      - expect: 'copy complete'
+        timeout: 180
+      - expect: '#\s*$'
+
+  - id: update-lab
+    name: Save the IP on the node in labber-pve
+    lab:
+      setMgmtIp: { ip: '{{steps.detect-ip.out.ip}}', port: 443 }

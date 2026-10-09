@@ -77,6 +77,7 @@
     } catch (err) {
       return;
     }
+    window.currentUser = data.me; // who "mine" means for reservation banners
 
     // Bail out before touching the DOM at all if this poll's data is
     // byte-for-byte identical to the last one actually rendered -- the
@@ -116,8 +117,8 @@
     for (const [labFile, labStatus] of deployedEntries) {
       grid.appendChild(window.DashboardCards.labGroup(labFile, labStatus));
     }
-    for (const [labFile] of notDeployedEntries) {
-      grid.appendChild(window.DashboardCards.notDeployedRow(labFile));
+    for (const [labFile, labStatus] of notDeployedEntries) {
+      grid.appendChild(window.DashboardCards.notDeployedRow(labFile, labStatus));
     }
   }
 

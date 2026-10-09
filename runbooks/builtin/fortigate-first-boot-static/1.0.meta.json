@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Log in to a freshly deployed FortiGate over the serial console, set the admin password and give the management interface a fixed IP and default route."
+}

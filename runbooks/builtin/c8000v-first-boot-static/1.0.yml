@@ -1,0 +1,103 @@
+title: Catalyst 8000V first boot with a static Gi1 address (console)
+vendor: cisco_c8000v
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE. For a Catalyst 8000V booted in
+# AUTONOMOUS (IOS-XE) mode: answers "no" to the initial configuration dialog
+# and terminates autoinstall (the auto-configuration), then creates the admin
+# user, enables SSH and the HTTPS/RESTCONF interface, and configures
+# GigabitEthernet1 as the management interface.
+#
+# Your earlier boot test showed this template starting in CONTROLLER (SD-WAN)
+# mode, which has no setup dialog (it wants a vManage / bootstrap file).
+# If the console shows a login prompt instead of "Press RETURN", convert it
+# first with `controller-mode disable` (it reboots into autonomous mode).
+
+inputs:
+  - { id: target, type: target, kind: cisco_c8000v, label: Catalyst 8000V node }
+  - { id: new_password, type: store, storeType: secret, default: password-complex, label: Admin + enable password }
+  - { id: hostname, type: string, default: c8000v, label: Hostname }
+  - { id: ip, type: string, label: Management IP, placeholder: 192.168.99.80 }
+  - { id: prefix, type: number, default: 24, label: Prefix length }
+  - { id: gateway, type: string, label: Default gateway, placeholder: 192.168.99.1 }
+
+steps:
+  - id: skip-setup
+    name: Skip the setup dialog and autoinstall
+    console:
+      - expect: 'press return to get started'
+        timeout: 1800
+        send: ''
+      - expect: 'initial configuration dialog\? \[yes/no\]:'
+        timeout: 120
+        send: 'no'
+      - expect: 'terminate autoinstall\?'
+        optional: true
+        timeout: 90
+        send: 'yes'
+      - sleep: 5
+      - send: ''
+      - expect: '>\s*$'
+        timeout: 120
+      - send: enable
+      - expect: '#\s*$'
+
+  - id: base
+    name: Hostname, admin user and management access
+    console:
+      - paste: |
+          configure terminal
+          hostname {{inputs.hostname}}
+          no ip domain lookup
+          ip domain name lab.local
+          username admin privilege 15 secret {{inputs.new_password}}
+          enable secret {{inputs.new_password}}
+          line console 0
+          logging synchronous
+          exec-timeout 0 0
+          exit
+          line vty 0 4
+          login local
+          transport input ssh
+          exit
+          ip http secure-server
+          ip http authentication local
+          restconf
+          end
+        failOn: '% Invalid input|% Incomplete command|% Ambiguous command|% Bad'
+        settle: 3
+      - expect: '#\s*$'
+      - send: configure terminal
+      - expect: '\(config\)#\s*$'
+      - send: crypto key generate rsa modulus 2048
+      - expect: '\[ok\]'
+        timeout: 180
+      - send: end
+      - expect: '#\s*$'
+
+  - id: mgmt-interface
+    name: Set the static address and default route
+    console:
+      - paste: |
+          configure terminal
+          interface GigabitEthernet1
+          ip address {{inputs.ip}} {{inputs.prefix | netmask}}
+          no shutdown
+          exit
+          ip route 0.0.0.0 0.0.0.0 {{inputs.gateway}}
+          end
+        failOn: '% Invalid input|% Incomplete command|% Ambiguous command|% Bad'
+        settle: 3
+      - expect: '#\s*$'
+
+  - id: save
+    name: Save the configuration
+    console:
+      - send: write memory
+      - expect: '\[ok\]'
+        timeout: 120
+      - expect: '#\s*$'
+
+  - id: update-lab
+    name: Save the IP on the node in labber-pve
+    lab:
+      setMgmtIp: { ip: '{{inputs.ip}}', port: 443 }

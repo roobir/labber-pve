@@ -9,6 +9,7 @@ COPY server.js ./
 COPY lib ./lib
 COPY routes ./routes
 COPY public ./public
+COPY runbooks ./runbooks
 
 # OpenShift's restricted SCC runs containers as an arbitrary, unpredictable
 # UID but always keeps them in the root group (gid 0) -- group-own

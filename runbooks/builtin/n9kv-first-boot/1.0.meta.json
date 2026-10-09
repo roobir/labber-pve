@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Skip POAP on a freshly deployed Nexus 9000v, set the admin password, enable DHCP on mgmt0, read the address and save it on the node."
+}

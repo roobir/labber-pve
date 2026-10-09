@@ -1,0 +1,50 @@
+title: F5 BIG-IP set a static management IP (console)
+vendor: f5_bigip_ve
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE. Use when the lab's management
+# network has no DHCP. Needs the root password to already be changed (run
+# f5-first-boot first, or set the Store entry to the current password).
+# Commands are F5's standard tmsh management-IP procedure; if the node
+# already has a management IP configured, `create` will complain -- the
+# live console pane will show it.
+
+inputs:
+  - { id: target, type: target, kind: f5_bigip_ve, label: F5 node }
+  - { id: password, type: store, storeType: secret, default: password-simple, label: Current root password }
+  - { id: ip, type: string, label: New management IP, placeholder: 192.168.99.50 }
+  - { id: prefix, type: number, default: 24, label: Prefix length }
+  - { id: gateway, type: string, label: Default gateway, placeholder: 192.168.99.1 }
+
+steps:
+  - id: login
+    name: Log in on the console
+    console:
+      - expect: "login:"
+        timeout: 1200
+        nudge: 10
+        send: root
+      - expect: "password:"
+        send: "{{inputs.password}}"
+      - expect: "#\\s*$"
+        timeout: 60
+
+  - id: configure
+    name: Disable DHCP and set the static IP + route
+    console:
+      - send: "tmsh modify sys global-settings mgmt-dhcp disabled"
+      - expect: "#\\s*$"
+        timeout: 60
+      - send: "tmsh create sys management-ip {{inputs.ip}}/{{inputs.prefix}}"
+      - expect: "#\\s*$"
+        timeout: 60
+      - send: "tmsh create sys management-route default gateway {{inputs.gateway}}"
+      - expect: "#\\s*$"
+        timeout: 60
+      - send: "tmsh save sys config"
+      - expect: "#\\s*$"
+        timeout: 120
+
+  - id: update-lab
+    name: Save the IP on the node in labber-pve
+    lab:
+      setMgmtIp: { ip: "{{inputs.ip}}", port: 443 }

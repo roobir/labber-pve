@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Turn off the Setup Utility wizard on a new F5 (gui-setup disabled) so the web GUI stops sending you to it."
+}

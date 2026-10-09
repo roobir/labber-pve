@@ -1,0 +1,126 @@
+title: F5 BIG-IP provision modules (LTM + ASM + iRules LX)
+vendor: f5_bigip_ve
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE.
+# Provisioning decides which licensed modules get CPU/memory/disk. F5 restarts
+# services while it does this (the management API drops out for a while), so
+# after the changes this waits for the system to settle, then confirms each
+# level. Run it AFTER f5-install-license (a module can only be provisioned if
+# the license includes it) and BEFORE f5-load-config (the config may use ASM).
+#
+# Notes
+#  - Plain iRules are part of LTM and need no separate provisioning. The
+#    "iRules LX" (ILX, Node.js-based) module is provisioned here too, at
+#    nominal by default -- set it to "skip" if you only use plain iRules.
+#  - "skip" leaves a module exactly as it is. "nominal" shares resources
+#    evenly between the licensed modules in use; "minimum" gives the least.
+#  - ASM needs memory: F5 advises against ASM on a VE with 4 GB or less, and
+#    suggests 12 GB+ to run every module together.
+#  - Modules are changed one after another, ASM last. F5 refuses a new
+#    provisioning request while the previous one is still being applied
+#    ("A previous provisioning operation is in progress. Try again when the
+#    BIGIP is active"), so every request waits for the system to be active
+#    first and is retried while F5 says it is busy.
+
+inputs:
+  - { id: target, type: target, kind: f5_bigip_ve, label: F5 node }
+  - { id: admin_user, type: string, default: admin, label: Admin user }
+  - { id: admin_password, type: store, storeType: secret, default: password-simple, label: Admin password }
+  - { id: ltm_level, type: select, options: [nominal, minimum], default: nominal, label: LTM level }
+  - { id: asm_level, type: select, options: [skip, nominal, minimum], default: nominal, label: ASM level (skip = leave as is) }
+  - { id: ilx_level, type: select, options: [skip, nominal, minimum], default: nominal, label: iRules LX (ILX) level (skip = leave as is) }
+
+steps:
+  - id: wait-ready
+    name: Wait for the system to be active before changing anything
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh show sys mcp-state field-fmt | grep -q "phase *running" && printf "MCP-%s\n" READY'
+      poll: { every: 10, timeout: 900, initialDelay: 5, until: { status: 200, match: "MCP-READY" } }
+
+  - id: provision-ltm
+    name: Provision LTM
+    http:
+      method: PATCH
+      path: /mgmt/tm/sys/provision/ltm
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json: { level: "{{inputs.ltm_level}}" }
+      expect: { status: 200, message: "F5 would not provision LTM -- is LTM in the license?" }
+      timeout: 900
+      retry: { match: 'provisioning operation is in progress|when the big-?ip is active', on: [503], every: 15, timeout: 1200 }
+
+  - id: provision-ilx
+    name: Provision iRules LX (ILX)
+    when: { path: inputs.ilx_level, equals: skip, not: true }
+    http:
+      method: PATCH
+      path: /mgmt/tm/sys/provision/ilx
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json: { level: "{{inputs.ilx_level}}" }
+      expect: { status: 200, message: "F5 would not provision ILX -- is it in the license, and is there enough memory?" }
+      timeout: 900
+      retry: { match: 'provisioning operation is in progress|when the big-?ip is active', on: [503], every: 15, timeout: 1200 }
+
+  - id: provision-asm
+    name: Provision ASM
+    when: { path: inputs.asm_level, equals: skip, not: true }
+    http:
+      method: PATCH
+      path: /mgmt/tm/sys/provision/asm
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json: { level: "{{inputs.asm_level}}" }
+      expect: { status: 200, message: "F5 would not provision ASM -- is ASM in the license, and does the VM have enough memory?" }
+      timeout: 900
+      retry: { match: 'provisioning operation is in progress|when the big-?ip is active', on: [503], every: 15, timeout: 1200 }
+
+  - id: wait-system
+    name: Wait for the system to finish restarting its services
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh show sys mcp-state field-fmt | grep -q "phase *running" && printf "MCP-%s\n" READY'
+      poll: { every: 15, timeout: 1200, initialDelay: 20, until: { status: 200, match: "MCP-READY" } }
+
+  - id: wait-asm
+    name: Wait for ASM to be ready
+    when: { path: inputs.asm_level, equals: skip, not: true }
+    http:
+      method: GET
+      path: /mgmt/tm/asm/policies
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      poll: { every: 15, timeout: 1200, until: { status: 200 } }
+
+  - id: verify-ltm
+    name: Confirm the LTM level
+    http:
+      method: GET
+      path: /mgmt/tm/sys/provision/ltm
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      expect: { status: 200, match: '"level"\s*:\s*"{{inputs.ltm_level}}"', message: "LTM is not at the requested level" }
+
+  - id: verify-ilx
+    name: Confirm the ILX level
+    when: { path: inputs.ilx_level, equals: skip, not: true }
+    http:
+      method: GET
+      path: /mgmt/tm/sys/provision/ilx
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      expect: { status: 200, match: '"level"\s*:\s*"{{inputs.ilx_level}}"', message: "ILX is not at the requested level" }
+
+  - id: verify-asm
+    name: Confirm the ASM level
+    when: { path: inputs.asm_level, equals: skip, not: true }
+    http:
+      method: GET
+      path: /mgmt/tm/sys/provision/asm
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      expect: { status: 200, match: '"level"\s*:\s*"{{inputs.asm_level}}"', message: "ASM is not at the requested level" }

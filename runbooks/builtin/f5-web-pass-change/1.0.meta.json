@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Clear the forced 'change your password' prompt on a new F5's web GUI by changing the admin password through the REST API."
+}

@@ -1,0 +1,49 @@
+title: F5 BIG-IP mark the Setup Utility wizard as done (REST)
+vendor: f5_bigip_ve
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE.
+# On a new BIG-IP the web GUI keeps sending you to the Setup Utility wizard
+# until it is completed. Everything the wizard asks (license, provisioning,
+# passwords) is already done by the other runbooks, so this just turns the
+# wizard off: `tmsh modify sys global-settings gui-setup disabled`, then saves.
+# That flag lives in the `sys global-settings` stanza, which f5-export-config
+# deliberately leaves out (it also holds the hostname), so a loaded config
+# does NOT carry it -- run this on every new node.
+# Run order: f5-first-boot -> f5-web-pass-change -> f5-skip-setup-utility
+#            -> f5-install-license -> f5-provision-modules
+
+inputs:
+  - { id: target, type: target, kind: f5_bigip_ve, label: F5 node }
+  - { id: admin_user, type: string, default: admin, label: Admin user }
+  - { id: admin_password, type: store, storeType: secret, default: password-simple, label: Admin password }
+
+steps:
+  - id: disable-setup
+    name: Turn off the Setup Utility wizard and save
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh modify sys global-settings gui-setup disabled > /var/tmp/labber-setup.out 2>&1
+          && tmsh save sys config >> /var/tmp/labber-setup.out 2>&1
+          && printf "SETUP-%s\n" DONE
+          || { cat /var/tmp/labber-setup.out; printf "SETUP-%s\n" FAILED; };
+          rm -f /var/tmp/labber-setup.out'
+      expect: { status: 200, match: "SETUP-DONE", message: "F5 would not turn off the Setup Utility" }
+      timeout: 120
+      retry: { on: [500, 502, 503], every: 5, timeout: 120 }
+
+  - id: verify
+    name: Confirm it is off
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh list sys global-settings gui-setup | grep -q "gui-setup disabled" && printf "SETUP-%s\n" OFF'
+      expect: { status: 200, match: "SETUP-OFF", message: "The Setup Utility is still on" }

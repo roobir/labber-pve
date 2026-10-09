@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Type a set-format PAN-OS configuration saved in the Store into the console, stop if the firewall rejects a line, then commit."
+}

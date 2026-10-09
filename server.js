@@ -15,6 +15,8 @@ const { buildApiRelayRoutes } = require('./lib/api-relay');
 const { handleConnection: handleConsoleConnection } = require('./lib/console-bridge');
 const guiProxy = require('./lib/gui-proxy');
 const { handleConnection: handleLabConnection } = require('./lib/lab-bridge');
+const { handleConnection: handleRunbookConnection } = require('./lib/runbook-bridge');
+const { seedBuiltins } = require('./lib/runbooks/seed');
 
 const { buildLabsRoutes } = require('./routes/labs');
 const { buildNodeOpsRoutes } = require('./routes/node-ops');
@@ -24,8 +26,13 @@ const { buildTemplatesRoutes } = require('./routes/templates');
 const { buildVmsRoutes } = require('./routes/vms');
 const { buildUsersRoutes } = require('./routes/users');
 const { buildApiTokensRoutes } = require('./routes/api-tokens');
+const { buildRunbooksRoutes } = require('./routes/runbooks');
+const { buildStoreRoutes } = require('./routes/store');
+const { buildPresenceRoutes } = require('./routes/presence');
+const { buildReservationsRoutes } = require('./routes/reservations');
 
 hostStats.start();
+seedBuiltins();
 const getStats = () => statsBuilder.buildStats({ labManager, hostStats });
 
 const PORT = process.env.PORT || 8080;
@@ -52,7 +59,9 @@ if (process.env.TRUST_PROXY) {
 // first.
 app.use('/api/relay', buildApiRelayRoutes({ apiTokens, apiSettings, labManager }));
 
-app.use(express.json());
+// 10 MB, not Express's 100 KB default: the Store holds whole device
+// configurations as text entries (everything here is behind a login).
+app.use(express.json({ limit: '10mb' }));
 app.use(sessionMiddleware);
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
@@ -80,6 +89,10 @@ app.use(buildTemplatesRoutes({ requireAuth, labsDir: LABS_DIR }));
 app.use(buildVmsRoutes({ requireAuth }));
 app.use(buildUsersRoutes({ requireAuth }));
 app.use(buildApiTokensRoutes({ requireAuth }));
+app.use(buildRunbooksRoutes({ requireAuth }));
+app.use(buildStoreRoutes({ requireAuth }));
+app.use(buildPresenceRoutes({ requireAuth }));
+app.use(buildReservationsRoutes({ requireAuth }));
 
 // Unauthenticated, gated by its own enabled toggle -- see lib/public-routes.js.
 app.use(buildPublicRoutes({ apiSettings, getStats }));
@@ -105,6 +118,7 @@ app.use((err, req, res, next) => {
 
 // --- Websockets: console bridge + lab deploy/destroy streaming -----------------
 const server = http.createServer(app);
+const WS_PATHS = ['/ws/console', '/ws/lab', '/ws/runbook'];
 const wss = new WebSocketServer({ noServer: true });
 
 // express-session needs a res-like object to hook into; the upgrade request
@@ -113,7 +127,7 @@ const wss = new WebSocketServer({ noServer: true });
 const resStub = { getHeader: () => {}, setHeader: () => {}, end: () => {} };
 
 server.on('upgrade', (req, socket, head) => {
-  if (req.url !== '/ws/console' && req.url !== '/ws/lab') {
+  if (!WS_PATHS.includes(req.url)) {
     socket.destroy();
     return;
   }
@@ -127,17 +141,17 @@ server.on('upgrade', (req, socket, head) => {
   });
 });
 
-wss.on('connection', (ws, req) => {
-  if (req.url === '/ws/lab') {
-    handleLabConnection(ws);
-  } else {
-    handleConsoleConnection(ws);
-  }
-});
+const WS_HANDLERS = {
+  '/ws/lab': handleLabConnection,
+  '/ws/console': handleConsoleConnection,
+  '/ws/runbook': handleRunbookConnection,
+};
+
+wss.on('connection', (ws, req) => WS_HANDLERS[req.url](ws, req));
 
 // Node's own default requestTimeout (5m) was silently killing large qcow2/iso
 // template uploads with a 408 -- independent of, and downstream of, every
-// npmplus/HAProxy Ingress timeout already raised for the same reason. A
+// reverse-proxy/Ingress timeout already raised for the same reason. A
 // fixed 30m replacement value was tried first, but that's a *total-duration*
 // cap (unlike HAProxy's idle-based timeouts, which a continuously-if-slowly
 // trickling upload never trips) -- confirmed hit for real on a slow remote

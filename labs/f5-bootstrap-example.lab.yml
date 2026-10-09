@@ -1,0 +1,58 @@
+# Example: two F5 BIG-IPs that bring themselves up after deploy.
+#
+# After the VMs are built and started, labber-pve runs each node's
+# `bootstrap:` runbooks in order (nodes in parallel). Needs a `password-simple`
+# secret and the license entries below in the Store tab.
+#
+# To make a replica of this lab (different bridge, different licenses), copy
+# the file and change only the `vars:` block.
+
+vars:
+  mgmt_bridge: vmbr4
+  data_bridge: vmbr8
+  license_1: lic-lab-01
+  license_2: lic-lab-02
+  config: f5-base-config-01   # Store text entry
+
+# What to do when something goes wrong (these are the defaults):
+onDeployFailure: rollback     # building failed -> remove what was created (keep = leave it for debugging)
+onBootstrapFailure: keep      # a runbook failed -> leave the lab up so it can be fixed + resumed (destroy = tear down)
+
+nodes:
+  f5-1:
+    kind: f5_bigip_ve
+    bootstrap:
+      - runbook: f5-first-boot                 # waits for boot, sets the password, saves the DHCP IP on the node
+      - runbook: f5-web-pass-change            # clears the web GUI's forced password change (waits for the API)
+      - runbook: f5-skip-setup-utility         # turns off the Setup Utility wizard
+      - runbook: f5-install-license
+        inputs: { license: "{{vars.license_1}}", method: offline }
+      - runbook: f5-provision-modules          # LTM + ASM (iRules LX optional); waits for the services to restart
+      - runbook: f5-load-config
+        inputs: { config: "{{vars.config}}" }   # a Store text entry holding the config file
+  f5-2:
+    kind: f5_bigip_ve
+    bootstrap:
+      - runbook: f5-first-boot
+      - runbook: f5-web-pass-change
+      - runbook: f5-skip-setup-utility
+      - runbook: f5-install-license
+        inputs: { license: "{{vars.license_2}}", method: offline }
+      - runbook: f5-provision-modules          # LTM + ASM (iRules LX optional); waits for the services to restart
+      - runbook: f5-load-config
+        inputs: { config: "{{vars.config}}" }   # a Store text entry holding the config file
+        onFail: stop                           # stop (default) | continue
+
+links:
+  - name: mgmt
+    external: true
+    bridge: "{{vars.mgmt_bridge}}"
+    endpoints:
+      - { node: f5-1, interface: net0 }
+      - { node: f5-2, interface: net0 }
+  - name: data
+    external: true
+    bridge: "{{vars.data_bridge}}"
+    endpoints:
+      - { node: f5-1, interface: net1 }
+      - { node: f5-2, interface: net1 }

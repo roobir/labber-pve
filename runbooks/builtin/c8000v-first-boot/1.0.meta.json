@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Skip the setup dialog and autoinstall on a freshly deployed Catalyst 8000V, create the admin user, set GigabitEthernet1 to DHCP, read the address and save it on the node."
+}

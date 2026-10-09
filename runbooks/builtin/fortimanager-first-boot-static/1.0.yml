@@ -1,0 +1,64 @@
+title: FortiManager first boot with a static management IP (console)
+vendor: fortimanager
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE. FortiManager's factory address is
+# 192.168.1.99/24 (no DHCP), so this sets the address you choose. Fortinet's
+# documented first login is user "admin" with a blank password; recent
+# releases then ask for a new password (handled as optional prompts below).
+
+inputs:
+  - { id: target, type: target, kind: fortimanager, label: FortiManager node }
+  - { id: new_password, type: store, storeType: secret, default: password-complex, label: New admin password }
+  - { id: interface, type: string, default: port1, label: Management interface }
+  - { id: ip, type: string, label: Management IP, placeholder: 192.168.99.60 }
+  - { id: prefix, type: number, default: 24, label: Prefix length }
+  - { id: gateway, type: string, label: Default gateway, placeholder: 192.168.99.1 }
+
+steps:
+  - id: login
+    name: Wait for the login prompt and log in
+    console:
+      - expect: 'login:'
+        timeout: 1800            # FortiManager's first boot initializes its database
+        nudge: 10
+        send: admin
+      - expect: 'password:'
+        send: ''
+
+  - id: change-password
+    name: Answer the forced password change (if asked)
+    console:
+      - expect: 'new password:'
+        optional: true
+        timeout: 60
+        send: '{{inputs.new_password}}'
+      - expect: 'confirm password:'
+        optional: true
+        timeout: 20
+        send: '{{inputs.new_password}}'
+      - expect: '#\s*$'
+        timeout: 120
+
+  - id: configure
+    name: Set the static address and default route
+    console:
+      - paste: |
+          config system interface
+          edit {{inputs.interface}}
+          set ip {{inputs.ip}} {{inputs.prefix | netmask}}
+          set allowaccess https ssh ping
+          next
+          end
+          config system route
+          edit 1
+          set device {{inputs.interface}}
+          set gateway {{inputs.gateway}}
+          next
+          end
+        failOn: 'command parse error|Command fail|Unknown action|node_check_object fail|value parse error|Return code -\d+'
+      - expect: '#\s*$'
+
+  - id: update-lab
+    name: Save the IP on the node in labber-pve
+    lab:
+      setMgmtIp: { ip: '{{inputs.ip}}', port: 443 }

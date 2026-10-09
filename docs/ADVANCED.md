@@ -185,3 +185,20 @@ Pick where template + lab disks should live via the Settings page's
 One real constraint: the `import` content type used for staging
 uploaded images only works on **directory-backed** storage
 (dir/NFS/CIFS), not LVM-thin/ZFS block storage.
+
+## Lab reservations
+
+A **reserve** button sits under each lab's name on the dashboard and in the
+Labs window. It puts up a banner — "Reserved by sam until Thu 14:30 (BGP
+test)" — so other engineers know someone is working on the lab: 4 hours, 8, 24,
+48 or a week, with an optional note. It is a notice, never a lock:
+
+- Nothing is blocked. Anyone can still open consoles, deploy, run runbooks or
+  destroy.
+- Anyone can **extend** their own reservation, **reserve instead** (take over),
+  or **release** someone else's.
+- Deploy, update, destroy and bootstrap in the Labs window, and the runbook run
+  form, mention another person's reservation before you go ahead.
+- A reservation ends by itself when its time is up, and survives a destroy +
+  redeploy (it is kept in `LABS_DIR/.config/reservations.json`, not in the lab
+  file).

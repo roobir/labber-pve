@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Save an F5's configuration, strip the device-specific settings, and store it under a name you choose, ready for f5-load-config."
+}

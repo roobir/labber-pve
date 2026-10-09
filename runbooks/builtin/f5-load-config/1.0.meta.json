@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Load a configuration file saved in the Store onto an F5: check it first, then merge (or replace) and save."
+}

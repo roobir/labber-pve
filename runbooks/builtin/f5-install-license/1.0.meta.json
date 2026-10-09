@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Install a license stored in the Store onto an F5 (after checking its UUID/MAC), optionally reboot and wait for it to return."
+}

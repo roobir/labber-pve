@@ -7,6 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
   <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/runbooks.css" />
 </head>
 <body>
   <header class="dash-header">
@@ -15,9 +16,11 @@
       <div class="dim" style="font-size:0.8rem">Proxmox lab builder</div>
     </div>
     <div class="header-actions">
+      <div class="presence" id="presence" title="who is using labber-pve"></div>
       <button class="labs-btn" id="labs-btn">labs</button>
       <button class="labs-btn" id="topology-btn">topology</button>
       <button class="labs-btn" id="templates-btn">templates</button>
+      <button class="labs-btn" id="runbooks-btn">runbooks</button>
       <button class="labs-btn" id="apihelp-btn">api</button>
       <button class="settings-btn" id="settings-btn">settings</button>
       <button class="logout-btn" id="logout-btn">logout</button>
@@ -41,6 +44,10 @@
       <div class="term-titlebar">
         <span id="term-title">-</span>
         <button class="term-close" id="term-close">&times;</button>
+      </div>
+      <div id="term-lock-banner" class="term-lock-banner hidden">
+        <span id="term-lock-text"></span>
+        <button type="button" id="term-lock-takeover">take over (aborts the run)</button>
       </div>
       <div id="term-body" class="term-body"></div>
     </div>
@@ -69,10 +76,12 @@
               <button id="labs-save-btn" disabled>save</button>
               <button id="labs-deploy-btn" disabled>deploy</button>
               <button id="labs-update-btn" disabled>update</button>
+              <button id="labs-bootstrap-btn" disabled title="run (or resume) the runbooks listed under each node's bootstrap:">bootstrap</button>
               <button id="labs-destroy-btn" class="danger" disabled>destroy</button>
               <button id="labs-delete-btn" class="danger" disabled>delete</button>
             </div>
           </div>
+          <div id="labs-reservation" class="lab-reservation"></div>
           <textarea id="labs-yaml" spellcheck="false" disabled></textarea>
           <div id="labs-message" class="labs-message"></div>
           <div id="labs-output" class="labs-output"></div>
@@ -223,6 +232,25 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
     </div>
   </div>
 
+  <div id="runbooks-overlay" class="modal-overlay hidden">
+    <div class="term-window runbooks-window">
+      <div class="term-titlebar">
+        <span>runbooks</span>
+        <div class="term-titlebar-actions">
+          <button class="term-minimize" id="runbooks-minimize" title="minimize">&minus;</button>
+          <button class="term-close" id="runbooks-close">&times;</button>
+        </div>
+      </div>
+      <div class="rb-tabs" id="rb-tabs">
+        <button type="button" data-tab="library">Library</button>
+        <button type="button" data-tab="runs">Runs</button>
+        <button type="button" data-tab="store">Store</button>
+      </div>
+      <div class="labs-message" id="rb-message"></div>
+      <div class="rb-body settings-body" id="rb-body"></div>
+    </div>
+  </div>
+
   <div id="settings-overlay" class="modal-overlay hidden">
     <div class="term-window settings-window settings-window-wide">
       <div class="term-titlebar">
@@ -240,6 +268,7 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
           <div class="settings-nav-item" data-panel="guiproxy">GUI Proxy</div>
           <div class="settings-nav-item" data-panel="publicapi">Public API</div>
           <div class="settings-nav-item" data-panel="users">Users</div>
+          <div class="settings-nav-item" data-panel="about">About</div>
         </div>
 
         <div class="settings-panels">
@@ -379,7 +408,7 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
                 hostname not included.
               </div>
               <label>GUI domain(s)
-                <input id="set-guidomain" type="text" placeholder="gui.labber.example.com, gui.labber.internal.example.com" autocomplete="off" />
+                <input id="set-guidomain" type="text" placeholder="gui.labber.example.com, gui.labber.cloud.example.com" autocomplete="off" />
               </label>
             </div>
 
@@ -395,7 +424,7 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
             <div class="dim" style="font-size:0.75rem; margin-bottom:0.6rem;">
               Exposes a read-only <code>/api/public/stats</code> endpoint (lab
               count, active labs, VM count, Proxmox node CPU/mem/disk) with no
-              login required -- for external consumers like a homepage's
+              login required -- for external consumers like a personal homepage's
               lab-status widget. Off by default.
             </div>
             <form id="api-settings-form">
@@ -474,6 +503,23 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
               <div id="users-message" class="labs-message"></div>
             </div>
           </div>
+
+          <div class="settings-panel hidden" data-panel="about">
+            <div class="settings-section-title">About</div>
+            <div class="settings-subsection">
+              <div><strong>labber-pve</strong> &mdash; Proxmox lab builder</div>
+              <div class="dim" style="font-size:0.8rem; margin-top:0.5rem;">
+                Built by Nico Fouch&eacute;.
+              </div>
+              <div style="font-size:0.8rem; margin-top:0.5rem;">
+                Source:
+                <a href="https://github.com/roobir/labber-pve" target="_blank" rel="noopener noreferrer">github.com/roobir/labber-pve</a>
+              </div>
+              <div class="dim" style="font-size:0.8rem; margin-top:0.5rem;">
+                Released under the MIT License.
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -543,6 +589,7 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/cytoscape@3/dist/cytoscape.min.js"></script>
   <script src="js/window-manager.js"></script>
+  <script src="js/terminal-fit.js"></script>
   <script src="js/terminal.js"></script>
   <script src="js/labs-wizard.js"></script>
   <script src="js/labs-editor.js"></script>
@@ -559,6 +606,19 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
   <script src="js/settings-users.js"></script>
   <script src="js/templates.js"></script>
   <script src="js/apihelp.js"></script>
+  <script src="js/runbooks-core.js"></script>
+  <script src="js/runbooks-help.js"></script>
+  <script src="js/runbooks-library.js"></script>
+  <script src="js/runbooks-editor-forms.js"></script>
+  <script src="js/runbooks-editor.js"></script>
+  <script src="js/runbooks-inputs.js"></script>
+  <script src="js/runbooks-run.js"></script>
+  <script src="js/runbooks-live.js"></script>
+  <script src="js/runbooks-runs.js"></script>
+  <script src="js/store-list.js"></script>
+  <script src="js/store-form.js"></script>
+  <script src="js/presence.js"></script>
+  <script src="js/reservations-ui.js"></script>
   <script src="js/dashboard-cards.js"></script>
   <script src="js/dashboard.js"></script>
 </body>

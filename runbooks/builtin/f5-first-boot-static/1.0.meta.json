@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Log in to a freshly deployed F5 over the serial console, set the password, and give the management port a fixed IP and default route instead of DHCP."
+}

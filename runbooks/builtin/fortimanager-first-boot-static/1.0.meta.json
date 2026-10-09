@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Log in to a freshly deployed FortiManager over the serial console, set the admin password and give port1 a fixed IP and default route."
+}

@@ -15,6 +15,9 @@
   const saveBtn = document.getElementById('labs-save-btn');
   const deployBtn = document.getElementById('labs-deploy-btn');
   const updateBtn = document.getElementById('labs-update-btn');
+  const bootstrapBtn = document.getElementById('labs-bootstrap-btn');
+  const reservationEl = document.getElementById('labs-reservation');
+  let latestStatuses = {}; // /api/status from the last list load, for reservation notices
   const destroyBtn = document.getElementById('labs-destroy-btn');
   const deleteBtn = document.getElementById('labs-delete-btn');
   const messageEl = document.getElementById('labs-message');
@@ -37,6 +40,7 @@
     saveBtn.disabled = !enabled;
     deployBtn.disabled = !enabled;
     updateBtn.disabled = !enabled;
+    bootstrapBtn.disabled = !enabled;
     destroyBtn.disabled = !enabled;
     deleteBtn.disabled = !enabled;
   }
@@ -82,6 +86,7 @@
     term.loadAddon(fitAddon);
     term.open(outputEl);
     fitAddon.fit();
+    TerminalFit.attach(fitAddon, outputEl);
   }
 
   // Same three-state read as the main dashboard's per-node dots (see
@@ -96,6 +101,11 @@
     if (!status || !status.deployed) return { cls: '', title: 'not deployed' };
     const nodes = Object.values(status.nodes || {});
     const running = nodes.filter((n) => n.status === 'running').length;
+    // A built lab whose bootstrap runbooks failed is not "done" -- amber
+    // with the reason, so it is not mistaken for a healthy lab.
+    if (status.bootstrap && status.bootstrap.status === 'failed') {
+      return { cls: 'partial', title: `deployed -- ${running}/${nodes.length} running, bootstrap FAILED (use "bootstrap" to resume)` };
+    }
     if (nodes.length > 0 && running === nodes.length) {
       return { cls: 'running', title: `deployed -- ${running}/${nodes.length} running` };
     }
@@ -121,7 +131,10 @@
     let statuses = {};
     try {
       const res = await fetch('/api/status');
-      statuses = (await res.json()).labs || {};
+      const body = await res.json();
+      statuses = body.labs || {};
+      window.currentUser = body.me;
+      latestStatuses = statuses;
     } catch (err) {
       // status is decoration, not essential -- fall back to all-dim dots
       // rather than failing the whole list over it
@@ -136,9 +149,25 @@
       dotEl.title = dot.title;
       item.appendChild(dotEl);
       item.appendChild(document.createTextNode(name));
+      // A CSS marker (not text), so the item's textContent stays the bare lab name
+      const reservation = statuses[name] && statuses[name].reservation;
+      if (reservation) {
+        item.classList.add('reserved');
+        item.title = window.Reservations.summary(reservation).replace(/^reserved/, 'Reserved');
+      }
       item.addEventListener('click', () => selectLab(name, item));
       listEl.appendChild(item);
     }
+  }
+
+  function renderReservation() {
+    const status = latestStatuses[currentLab] || {};
+    window.Reservations.render(reservationEl, currentLab, status.reservation, {
+      onChange: (reservation) => {
+        latestStatuses[currentLab] = { ...status, reservation };
+        if (window.Dashboard) window.Dashboard.refresh();
+      },
+    });
   }
 
   async function selectLab(name, itemEl) {
@@ -166,6 +195,7 @@
     nameEl.textContent = name;
     yamlEl.value = content;
     setEditingEnabled(true);
+    renderReservation();
   }
 
   async function save() {
@@ -187,12 +217,15 @@
 
   function runAction(action) {
     if (!currentLab) return;
-    if (action === 'destroy' && !window.confirm(`Destroy lab "${currentLab}"? This tears down its running nodes.`)) {
-      return;
-    }
-    if (action === 'update' && !window.confirm(`Update lab "${currentLab}"? This may restart nodes whose config changed.`)) {
-      return;
-    }
+    // A reservation never blocks anything, but say whose it is before acting.
+    const reservation = latestStatuses[currentLab] && latestStatuses[currentLab].reservation;
+    const warn = window.Reservations.warning(reservation);
+    const questions = {
+      destroy: `Destroy lab "${currentLab}"? This tears down its running nodes.`,
+      update: `Update lab "${currentLab}"? This may restart nodes whose config changed.`,
+    };
+    const question = questions[action] || (warn ? `Run ${action} on "${currentLab}"?` : null);
+    if (question && !window.confirm(warn ? `${warn}\n\n${question}` : question)) return;
     if (ws) {
       setMessage('a command is already running', true);
       return;
@@ -286,6 +319,7 @@
   saveBtn.addEventListener('click', save);
   deployBtn.addEventListener('click', () => runAction('deploy'));
   updateBtn.addEventListener('click', () => runAction('update'));
+  bootstrapBtn.addEventListener('click', () => runAction('bootstrap'));
   destroyBtn.addEventListener('click', () => runAction('destroy'));
   deleteBtn.addEventListener('click', deleteLab);
   window.addEventListener('resize', () => fitAddon && fitAddon.fit());

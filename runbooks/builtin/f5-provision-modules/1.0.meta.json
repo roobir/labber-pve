@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Provision LTM (default), ASM and optionally iRules LX on an F5, wait for the services to restart, and confirm each level."
+}

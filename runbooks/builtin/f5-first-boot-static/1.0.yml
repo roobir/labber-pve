@@ -1,0 +1,80 @@
+title: F5 BIG-IP first boot with a static management IP (console)
+vendor: f5_bigip_ve
+
+# Same verified login as f5-first-boot (BIG-IP 17.5.1.5): waits for boot, logs
+# in with the factory credentials, answers the forced root password change and
+# sets the same password on the admin (GUI / REST) account. Then, instead of
+# reading a DHCP address, it turns DHCP off and gives the management port the
+# address and default route you choose, saves, and records the IP on the node.
+# The static-address commands are F5's standard tmsh procedure but have NOT
+# yet been run on a real clone. Run f5-web-pass-change afterwards, as usual.
+
+inputs:
+  - { id: target, type: target, kind: f5_bigip_ve, label: F5 node }
+  - { id: default_user, type: string, default: root, label: Factory console user }
+  - { id: default_password, type: string, default: default, label: Factory console password }
+  - { id: new_password, type: store, storeType: secret, default: password-simple, label: New password (from the Store) }
+  - { id: ip, type: string, label: Management IP, placeholder: 192.168.99.50 }
+  - { id: prefix, type: number, default: 24, label: Prefix length }
+  - { id: gateway, type: string, label: Default gateway, placeholder: 192.168.99.1 }
+
+steps:
+  - id: login
+    name: Wait for the login prompt and log in
+    console:
+      - expect: "login:"
+        timeout: 1200          # a cold F5 VE boot can take several minutes
+        nudge: 10              # press Enter now and then so a quiet console prints a prompt
+        send: "{{inputs.default_user}}"
+      - expect: "password:"
+        send: "{{inputs.default_password}}"
+
+  - id: change-password
+    name: Answer the forced password change
+    console:
+      - expect: "(current|old).*password:"
+        optional: true
+        timeout: 20
+        send: "{{inputs.default_password}}"
+      - expect: "new.*password:"
+        optional: true
+        timeout: 20
+        send: "{{inputs.new_password}}"
+      - expect: "(retype|confirm|re-enter).*password:"
+        optional: true
+        timeout: 20
+        send: "{{inputs.new_password}}"
+      - expect: "#\\s*$"       # root shell prompt
+        timeout: 60
+
+  - id: set-admin-password
+    name: Set the same password on the admin (GUI / REST) account
+    console:
+      - send: "tmsh modify auth user admin password '{{inputs.new_password}}'"
+      - expect: "#\\s*$"
+        timeout: 60
+
+  - id: static-ip
+    name: Turn off DHCP and set the static management address + route
+    console:
+      - send: tmsh modify sys global-settings mgmt-dhcp disabled
+      - expect: '#\s*$'
+        timeout: 60
+      - send: tmsh create sys management-ip {{inputs.ip}}/{{inputs.prefix}}
+      - expect: '#\s*$'
+        timeout: 60
+      - send: tmsh create sys management-route default gateway {{inputs.gateway}}
+      - expect: '#\s*$'
+        timeout: 60
+
+  - id: save-config
+    name: Save the F5 configuration
+    console:
+      - send: tmsh save sys config
+      - expect: '#\s*$'
+        timeout: 120
+
+  - id: update-lab
+    name: Save the IP on the node in labber-pve
+    lab:
+      setMgmtIp: { ip: '{{inputs.ip}}', port: 443 }

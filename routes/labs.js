@@ -79,7 +79,7 @@ function buildLabsRoutes({ requireAuth, getStats }) {
         (sum, l) => sum + (l.deployed ? Object.values(l.nodes).filter((n) => n.status === 'running').length : 0),
         0
       );
-      res.json({ labs, totalNodes, bootedNodes });
+      res.json({ labs, totalNodes, bootedNodes, me: req.session.username });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

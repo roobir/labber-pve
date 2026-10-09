@@ -403,7 +403,14 @@
   // been deployed and then destroyed simply vanished from view with no way
   // to tell "destroyed" apart from "never existed" without opening the
   // separate Labs modal.
-  function notDeployedRow(labFile) {
+  // The "reserved by ..." notice + reserve/release buttons under a lab's title.
+  function reservationBar(labFile, reservation) {
+    const bar = document.createElement('div');
+    window.Reservations.render(bar, labFile, reservation, { onChange: () => window.Dashboard && window.Dashboard.refresh() });
+    return bar;
+  }
+
+  function notDeployedRow(labFile, labStatus) {
     const wrap = document.createElement('div');
     wrap.className = 'lab-group';
     const labName = labFile.replace(/\.lab\.yml$/, '');
@@ -413,6 +420,7 @@
         <span class="dim" style="margin-left:0.6rem">not deployed</span>
       </div>
     `;
+    wrap.appendChild(reservationBar(labFile, labStatus && labStatus.reservation));
     return wrap;
   }
 
@@ -422,6 +430,7 @@
     const labName = labFile.replace(/\.lab\.yml$/, '');
 
     wrap.innerHTML = `<div class="lab-group-title">lab: <span class="lab-group-name">${escapeHtml(labName)}</span></div>`;
+    wrap.appendChild(reservationBar(labFile, labStatus.reservation));
 
     const cardGrid = document.createElement('div');
     cardGrid.className = 'grid';

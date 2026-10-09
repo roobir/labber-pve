@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Skip POAP on a freshly deployed Nexus 9000v, set the admin password and give mgmt0 a fixed IP and default route."
+}

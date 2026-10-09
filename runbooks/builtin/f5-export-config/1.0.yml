@@ -1,0 +1,140 @@
+title: F5 BIG-IP export the configuration to the Store (REST)
+vendor: f5_bigip_ve
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE.
+# Saves the F5's running configuration as a single configuration file (SCF),
+# removes the settings that belong to one particular device, and stores the
+# result as a `text` entry in the Store, ready for f5-load-config.
+#
+# Two profiles decide what is left OUT of the stored config (any top-level
+# stanza whose first line starts with one of the listed prefixes):
+#
+#   other-node  (default) a config to load onto ANOTHER node: leaves out
+#               management IP + route, global settings (hostname), device
+#               trust (cm), local users + password policy, self IPs,
+#               provisioning, license, and the certificate / key FILE entries.
+#   same-node   a config to put back on a REBUILT copy of THIS node: keeps the
+#               hostname, local users, self IPs and provisioning; still leaves
+#               out the management IP + route, license, device trust (cm) and
+#               certificate / key files.
+#
+# Why the certificate / key files (`sys file ...`, `sys crypto cert|key ...`)
+# and device trust (`cm`) are always left out: an SCF lists those files but
+# does not contain them, and a target F5 refuses to load a config that points
+# at a file it does not have ("Cache path ... does not exist"). Restoring a
+# device's trust identity or its certificates needs a full backup archive
+# (UCS), not an SCF. Anything that uses a custom certificate (a client-ssl
+# profile, say) needs the certificate installed on the target first.
+# Keep "same-node" configs off a second node that runs at the same time: it
+# would get the same self IPs. "Also remove" adds more prefixes to either
+# profile; the result can be edited in the Store afterwards.
+#
+# How a stanza is recognised: a line starting a new top-level stanza begins
+# with a lowercase word and ENDS in a brace. Lines inside a stanza that merely
+# start with a lowercase letter -- e.g. the continuation lines of a multi-line
+# certificate/key value -- are not new stanzas, so they stay dropped together
+# with the stanza they belong to.
+#
+# Encrypted values: passwords, passphrases and some factory data (for example
+# the bot signatures' `factory_rule`) are stored encrypted with THIS device's
+# master key, which is different on every BIG-IP. A target F5 cannot decrypt
+# them and rejects the whole load ("01071769 ... encrypted with a different
+# master key"). With "Leave out objects holding encrypted values" = yes (the
+# default) every object that contains one is left out, and a comment at the
+# end of the stored config lists what was left out. Objects that referred to
+# one of them (a pool using a monitor that had a password) will then be
+# reported by F5's check; recreate those on the target.
+#
+# Files: an object with a `cache-path` line (certificates, keys, iFiles,
+# external data groups, F5's auto-update data such as `datasync-global ...`)
+# points at a file in the source device's file store. The SCF does not contain
+# the file, and a target F5 refuses to load an object whose file it does not
+# have ("Cache path ... does not exist"). Every such object is left out, by
+# what it is rather than by its name, and listed at the end of the stored text.
+#
+# Not captured by an SCF: ASM security policies (export those separately),
+# SSL certificates and keys, and the license.
+#
+# Safety: an existing Store entry is only replaced if "Replace" is yes, and
+# the Store keeps its previous value in history. Only `text` entries can be
+# written. The file stays on the F5 only for the length of the run.
+
+inputs:
+  - { id: target, type: target, kind: f5_bigip_ve, label: F5 node }
+  - { id: admin_user, type: string, default: admin, label: Admin user }
+  - { id: admin_password, type: store, storeType: secret, default: password-simple, label: Admin password }
+  - { id: entry_name, type: string, default: f5-base-config-01, label: Store entry name to save as }
+  - { id: overwrite, type: select, options: ["no", "yes"], default: "no", label: Replace the entry if it exists }
+  - { id: save_first, type: select, options: ["yes", "no"], default: "yes", label: Save the running config to disk first }
+  - { id: profile, type: select, options: [other-node, same-node], default: other-node, label: "Use this config for (other-node = a different node; same-node = a rebuilt copy of this one)" }
+  - { id: drop_encrypted, type: select, options: ["yes", "no"], default: "yes", label: "Leave out objects holding encrypted values (they only load on this same device)" }
+  - { id: also_remove, type: string, default: "~~none~~", label: "Also remove these prefixes (separated by |; leave as is for none)" }
+
+steps:
+  - id: save
+    name: Save the configuration on the F5
+    when: { path: inputs.save_first, equals: "yes" }
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh save sys config > /var/tmp/labber-export.out 2>&1
+          && printf "SAVE-%s\n" OK
+          || { cat /var/tmp/labber-export.out; printf "SAVE-%s\n" FAILED; };
+          rm -f /var/tmp/labber-export.out'
+      expect: { status: 200, match: "SAVE-OK", message: "F5 could not save its configuration" }
+      timeout: 180
+
+  - id: write-scf
+    name: Write the single configuration file
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'rm -f /var/tmp/labber-export.scf;
+          tmsh save sys config file /var/tmp/labber-export.scf no-passphrase > /var/tmp/labber-export.out 2>&1
+          && printf "EXPORT-%s\n" SAVED
+          || { cat /var/tmp/labber-export.out; printf "EXPORT-%s\n" FAILED; };
+          rm -f /var/tmp/labber-export.out'
+      expect: { status: 200, match: "EXPORT-SAVED", message: "F5 could not write the configuration file" }
+      timeout: 300
+
+  - id: read
+    name: Read it back without the device-specific settings
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'if [ "{{inputs.profile}}" = same-node ];
+          then s="sys management-ip|sys management-route|sys license|cm |sys file |sys crypto cert|sys crypto key";
+          else s="sys management-ip|sys management-route|sys global-settings|cm |auth user|auth password-policy|net self |sys provision|sys license|sys file |sys crypto cert|sys crypto key";
+          fi;
+          e=0; [ "{{inputs.drop_encrypted}}" = yes ] && e=1;
+          awk -v skip="^($s|{{inputs.also_remove}})" -v enc="$e" -v hdr="# f5-export-config: left out these objects, which only work on the device they came from:" -v r1="(encrypted value) " -v r2="(file on the device) " -v sp="#   " -v blank=""
+          "function flush(   i) { if (n > 0 && !drop) { if (enc && has) { dropped[++nd] = r1 buf[1] } else if (files) { dropped[++nd] = r2 buf[1] } else { for (i = 1; i <= n; i++) print buf[i] } } n = 0; has = 0; files = 0 }
+          /^[a-z].*[{}][ \t]*\$/ { flush(); drop = (\$0 ~ skip) }
+          { buf[++n] = \$0; if (\$0 ~ /[\$]M[\$]/) has = 1; if (\$0 ~ /^[ \t]+cache-path[ \t]/) files = 1 }
+          END { flush(); if (nd > 0) { print blank; print hdr; for (i = 1; i <= nd && i <= 40; i++) print sp dropped[i]; if (nd > 40) print sp \"... and \" (nd - 40) \" more\" } }" /var/tmp/labber-export.scf;
+          rm -f /var/tmp/labber-export.scf'
+      expect: { status: 200 }
+      extract: { config: { json: commandResult } }
+      timeout: 120
+
+  - id: store
+    name: Save it to the Store
+    store:
+      save:
+        name: "{{inputs.entry_name}}"
+        value: "{{steps.read.out.config}}"
+        group: f5
+        description: "Configuration exported from {{inputs.target.node}} by f5-export-config ({{inputs.profile}})"
+        overwrite: "{{inputs.overwrite}}"

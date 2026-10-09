@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Give a freshly deployed F5 a fixed management IP and route over the serial console, then save it on the node."
+}

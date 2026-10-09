@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Log in to a freshly deployed Cisco FMC over the serial console, accept the EULA, set the admin password, take an address by DHCP, read it and save it on the node."
+}

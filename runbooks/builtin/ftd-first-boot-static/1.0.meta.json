@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Log in to a freshly deployed Cisco FTD over the serial console, accept the EULA, set the admin password and a fixed management address."
+}

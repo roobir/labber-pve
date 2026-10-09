@@ -1,0 +1,120 @@
+title: Cisco FMC first boot with a static management address (console)
+vendor: cisco_fmc
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE. Follows Cisco's documented
+# Management Center Virtual CLI setup: log in (admin / Admin123), accept the
+# EULA, set a new admin password, then answer the `configure-network` script.
+# On some builds the script starts by itself after the password change; on
+# others you have to run `sudo /usr/local/sf/bin/configure-network` -- the
+# `detect-script` step notices which and runs it only if needed. A first boot
+# can take well over 30 minutes while the database is created.
+
+inputs:
+  - { id: target, type: target, kind: cisco_fmc, label: FMC node }
+  - { id: default_password, type: string, default: Admin123, label: Factory admin password }
+  - { id: new_password, type: store, storeType: secret, default: password-complex, label: New admin password }
+  - { id: hostname, type: string, default: fmc-01, label: Hostname (fully qualified is fine) }
+  - { id: dns, type: string, default: none, label: DNS servers (comma separated, or none) }
+  - { id: ip, type: string, label: Management IP, placeholder: 192.168.99.90 }
+  - { id: prefix, type: number, default: 24, label: Prefix length }
+  - { id: gateway, type: string, label: Default gateway, placeholder: 192.168.99.1 }
+
+steps:
+  - id: login
+    name: Wait for the login prompt and log in
+    console:
+      - expect: 'login:'
+        timeout: 3600
+        nudge: 15
+        send: admin
+      - expect: 'password:'
+        send: '{{inputs.default_password}}'
+
+  - id: eula-show
+    name: Display the EULA (if asked)
+    console:
+      - expect: '(press <enter> to display the eula)'
+        as: shown
+        optional: true
+        timeout: 45
+        send: ''
+
+  - id: eula-agree
+    name: Agree to the EULA
+    when: { path: steps.eula-show.out.shown, exists: true }
+    console:
+      - expect: "please enter .yes. or press <enter> to agree"
+        timeout: 120
+        nudge: 0.5               # the EULA is shown through a pager; Enter scrolls it
+        send: 'YES'
+
+  - id: change-password
+    name: Set the new admin password
+    console:
+      - expect: 'enter new password:'
+        optional: true
+        timeout: 60
+        send: '{{inputs.new_password}}'
+      - expect: 'confirm new password:'
+        optional: true
+        timeout: 20
+        send: '{{inputs.new_password}}'
+
+  - id: detect-script
+    name: See whether the network script started by itself
+    console:
+      - expect: '(hostname or fully qualified domain name|\$)'
+        as: seen                 # the shell prompt ($) means it did not start by itself
+        timeout: 300
+
+  - id: run-script
+    name: Start the network script
+    when: { path: steps.detect-script.out.seen, equals: '$' }
+    console:
+      - send: sudo /usr/local/sf/bin/configure-network
+      - expect: 'password'
+        optional: true
+        timeout: 10
+        send: '{{inputs.new_password}}'
+      - expect: 'hostname or fully qualified domain name'
+        timeout: 60
+
+  - id: wizard
+    name: Answer the network script
+    console:
+      - send: '{{inputs.hostname}}'
+      - expect: 'configure ipv4\?'
+        timeout: 60
+        send: 'y'
+      - expect: 'configure ipv6\?'
+        timeout: 30
+        send: 'n'
+      - expect: 'dhcp or manually'
+        timeout: 30
+        send: 'manual'
+      - expect: 'ipv4 address for the management interface'
+        timeout: 30
+        send: '{{inputs.ip}}'
+      - expect: 'ipv4 netmask for the management interface'
+        timeout: 30
+        send: '{{inputs.prefix | netmask}}'
+      - expect: 'ipv4 default gateway for the management interface'
+        timeout: 30
+        send: '{{inputs.gateway}}'
+      - expect: 'dns servers'
+        timeout: 60
+        send: '{{inputs.dns}}'
+      - expect: 'ntp'
+        optional: true
+        timeout: 20
+        send: ''
+      - expect: 'are these settings correct'
+        timeout: 60
+        send: 'y'
+      - expect: '(updated network configuration|\$\s*$)'
+        timeout: 600
+
+  - id: update-lab
+    name: Save the IP on the node in labber-pve
+    lab:
+      setMgmtIp: { ip: '{{inputs.ip}}', port: 443 }

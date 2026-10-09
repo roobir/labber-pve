@@ -1,0 +1,143 @@
+title: F5 BIG-IP load a stored configuration (REST)
+vendor: f5_bigip_ve
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE.
+# Takes a BIG-IP single-configuration-file (SCF) saved as a `text` entry in
+# the Store, checks that the F5 accepts it, applies it, and saves.
+#
+#   merge   (default) adds to / updates the running config
+#   replace replaces the running config with the file (keeps the license)
+#
+# Capture the text from an existing F5 with
+#   tmsh save sys config file /var/tmp/lab.scf no-passphrase
+# and paste the file into a Store `text` entry. Leave device-specific items
+# (management IP, hostname, license, device trust) out of the file -- the
+# f5-export-config runbook does this for you. Run this AFTER
+# f5-install-license and f5-provision-modules: modules the config uses must be
+# licensed and provisioned. Long configs are sent in parts (a single shell
+# argument can only hold ~128 KB) and reassembled on the F5.
+#
+# The verify/apply commands print a marker built with printf so the marker
+# text is never in the request itself (F5 echoes the request back, which
+# would otherwise make a failure look like a success).
+
+inputs:
+  - { id: target, type: target, kind: f5_bigip_ve, label: F5 node }
+  - { id: admin_user, type: string, default: admin, label: Admin user }
+  - { id: admin_password, type: store, storeType: secret, default: password-simple, label: Admin password }
+  - { id: config, type: store, storeType: text, label: Configuration (Store text entry) }
+  - { id: mode, type: select, options: [merge, replace], default: merge, label: How to apply it }
+  - { id: save, type: select, options: ["yes", "no"], default: "yes", label: Save the config afterwards }
+
+steps:
+  - id: reset-upload
+    name: Clear any earlier upload
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'rm -f /var/tmp/labber-load.part.* /var/tmp/labber-load.b64 /var/tmp/labber-load.scf /var/tmp/labber-load.out; printf "RESET-%s\n" DONE'
+      expect: { status: 200, match: "RESET-DONE" }
+
+  - id: upload
+    name: Send the configuration to the F5 (in parts)
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      eachChunk: { value: "{{inputs.config | b64}}", size: 30000 }
+      json:
+        command: run
+        # Each part is its own file (overwritten, not appended to), so asking
+        # again after a timeout can never duplicate data.
+        utilCmdArgs: >-
+          -c 'printf %s {{chunk}} > /var/tmp/labber-load.part.{{chunkIndex}} && printf "PART-%s\n" STORED'
+      expect: { status: 200, match: "PART-STORED", message: "F5 did not accept a part of the configuration" }
+      timeout: 120
+      # F5's REST service sometimes answers "500 AsyncContext timeout" when it is busy
+      retry: { on: [500, 502, 503], every: 5, timeout: 180 }
+
+  - id: decode
+    name: Rebuild the configuration file on the F5
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'for i in $(ls /var/tmp/labber-load.part.* | sed "s/.*\.//" | sort -n); do cat /var/tmp/labber-load.part.$i; done | base64 -d > /var/tmp/labber-load.scf
+          && rm -f /var/tmp/labber-load.part.* && printf "UPLOAD-%s\n" DONE'
+      expect: { status: 200, match: "UPLOAD-DONE", message: "F5 could not rebuild the configuration file from the uploaded parts" }
+      timeout: 120
+      retry: { on: [500, 502, 503], every: 5, timeout: 120 }
+
+  - id: verify
+    name: Ask the F5 to check the configuration (changes nothing)
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh load sys config merge file /var/tmp/labber-load.scf verify > /var/tmp/labber-load.out 2>&1
+          && printf "LOAD-%s\n" OK
+          || { cat /var/tmp/labber-load.out; printf "LOAD-%s\n" FAILED; rm -f /var/tmp/labber-load.scf; };
+          rm -f /var/tmp/labber-load.out'
+      expect: { status: 200, match: "LOAD-OK" }
+      timeout: 300
+
+  - id: apply-merge
+    name: Apply the configuration (merge)
+    when: { path: inputs.mode, equals: merge }
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh load sys config merge file /var/tmp/labber-load.scf > /var/tmp/labber-load.out 2>&1
+          && printf "LOAD-%s\n" OK
+          || { cat /var/tmp/labber-load.out; printf "LOAD-%s\n" FAILED; };
+          rm -f /var/tmp/labber-load.scf /var/tmp/labber-load.out'
+      expect: { status: 200, match: "LOAD-OK" }
+      timeout: 600
+
+  - id: apply-replace
+    name: Apply the configuration (replace, keeping the license)
+    when: { path: inputs.mode, equals: replace }
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh load sys config file /var/tmp/labber-load.scf no-license > /var/tmp/labber-load.out 2>&1
+          && printf "LOAD-%s\n" OK
+          || { cat /var/tmp/labber-load.out; printf "LOAD-%s\n" FAILED; };
+          rm -f /var/tmp/labber-load.scf /var/tmp/labber-load.out'
+      expect: { status: 200, match: "LOAD-OK" }
+      timeout: 600
+
+  - id: save
+    name: Save the running configuration
+    when: { path: inputs.save, equals: "yes" }
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh save sys config > /var/tmp/labber-load.out 2>&1
+          && printf "SAVE-%s\n" OK
+          || { cat /var/tmp/labber-load.out; printf "SAVE-%s\n" FAILED; };
+          rm -f /var/tmp/labber-load.out'
+      expect: { status: 200, match: "SAVE-OK" }
+      timeout: 180

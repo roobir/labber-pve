@@ -1,0 +1,134 @@
+title: Cisco FTD first boot with a static management address (console)
+vendor: cisco_ftd
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE. Follows Cisco's documented Secure
+# Firewall Threat Defense first-boot CLI wizard: log in (admin / Admin123),
+# accept the EULA, set a new admin password, then answer the network wizard.
+# The order of the EULA and password prompts differs between FTD builds and
+# platforms, so both are handled as optional steps on either side of
+# `connect ftd`. A first boot can take 15-30 minutes before the login prompt.
+# Expect to tighten the prompts after a real run.
+
+inputs:
+  - { id: target, type: target, kind: cisco_ftd, label: FTD node }
+  - { id: default_password, type: string, default: Admin123, label: Factory admin password }
+  - { id: new_password, type: store, storeType: secret, default: password-complex, label: New admin password }
+  - { id: hostname, type: string, default: ftd-01, label: Hostname }
+  - { id: dns, type: string, default: none, label: DNS servers (comma separated, or none) }
+  - { id: local_management, type: select, options: ["no", "yes"], default: "no", label: Manage the device locally (yes = FDM; no = managed by an FMC) }
+  - { id: ip, type: string, label: Management IP, placeholder: 192.168.99.90 }
+  - { id: prefix, type: number, default: 24, label: Prefix length }
+  - { id: gateway, type: string, label: Default gateway, placeholder: 192.168.99.1 }
+
+steps:
+  - id: login
+    name: Wait for the login prompt and log in
+    console:
+      - expect: 'login:'
+        timeout: 2700
+        nudge: 15
+        send: admin
+      - expect: 'password:'
+        send: '{{inputs.default_password}}'
+
+  - id: eula-1-show
+    name: Display the EULA (if asked)
+    console:
+      - expect: '(press <enter> to display the eula)'
+        as: shown
+        optional: true
+        timeout: 45
+        send: ''
+
+  - id: eula-1-agree
+    name: Agree to the EULA
+    when: { path: steps.eula-1-show.out.shown, exists: true }
+    console:
+      - expect: "please enter .yes. or press <enter> to agree"
+        timeout: 120
+        nudge: 0.5               # the EULA is shown through a pager; Enter scrolls it
+        send: 'YES'
+
+  - id: change-password
+    name: Set the new admin password
+    console:
+      - expect: 'enter new password:'
+        optional: true
+        timeout: 60
+        send: '{{inputs.new_password}}'
+      - expect: 'confirm new password:'
+        optional: true
+        timeout: 20
+        send: '{{inputs.new_password}}'
+
+  - id: connect-ftd
+    name: Enter the Threat Defense CLI (if the console starts in the platform shell)
+    console:
+      - expect: 'firepower#'
+        optional: true
+        timeout: 30
+        send: connect ftd
+
+  - id: eula-2-show
+    name: Display the EULA (if asked)
+    console:
+      - expect: '(press <enter> to display the eula)'
+        as: shown
+        optional: true
+        timeout: 60
+        send: ''
+
+  - id: eula-2-agree
+    name: Agree to the EULA
+    when: { path: steps.eula-2-show.out.shown, exists: true }
+    console:
+      - expect: "please enter .yes. or press <enter> to agree"
+        timeout: 120
+        nudge: 0.5               # the EULA is shown through a pager; Enter scrolls it
+        send: 'YES'
+
+  - id: wizard
+    name: Answer the network setup wizard
+    console:
+      - expect: 'configure ipv4\? \(y/n\)'
+        timeout: 300
+        send: 'y'
+      - expect: 'configure ipv6\? \(y/n\)'
+        timeout: 30
+        send: 'n'
+      - expect: 'dhcp or manually\? \(dhcp/manual\)'
+        timeout: 30
+        send: 'manual'
+      - expect: 'ipv4 address for the management interface'
+        timeout: 30
+        send: '{{inputs.ip}}'
+      - expect: 'ipv4 netmask for the management interface'
+        timeout: 30
+        send: '{{inputs.prefix | netmask}}'
+      - expect: 'ipv4 default gateway for the management interface'
+        timeout: 30
+        send: '{{inputs.gateway}}'
+      - expect: 'fully qualified hostname'
+        timeout: 60
+        send: '{{inputs.hostname}}'
+      - expect: 'comma-separated list of dns servers'
+        timeout: 30
+        send: '{{inputs.dns}}'
+      - expect: 'comma-separated list of search domains'
+        optional: true
+        timeout: 30
+        send: 'none'
+      - expect: 'manage the device locally\?'
+        timeout: 120
+        send: '{{inputs.local_management}}'
+      - expect: 'configure firewall mode\?'
+        optional: true
+        timeout: 120
+        send: 'routed'
+      - expect: '>\s*$'
+        timeout: 900
+
+  - id: update-lab
+    name: Save the IP on the node in labber-pve
+    lab:
+      setMgmtIp: { ip: '{{inputs.ip}}', port: 443 }

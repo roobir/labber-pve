@@ -1,0 +1,53 @@
+title: FortiGate load a stored configuration (console)
+vendor: fortios
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE.
+# Types a CLI configuration (the text of `show full-configuration` or of a
+# config backup file, kept in the Store as a `text` entry) into the FortiGate's
+# serial console, line by line, and fails if the FortiGate rejects a line.
+# Using the console means no API token is needed and the management network
+# does not have to work yet.
+#
+# Be careful what is in the file: lines for the management interface
+# (`config system interface` / port1), admin accounts and `system global`
+# will change those things on this node. Remove what should not be copied.
+# Run it after the first-boot runbook. Long configs take a while to type
+# (about 30 ms per line).
+
+inputs:
+  - { id: target, type: target, kind: fortios, label: FortiGate node }
+  - { id: admin_password, type: store, storeType: secret, default: password-complex, label: Admin password }
+  - { id: config, type: store, storeType: text, label: Configuration (Store text entry) }
+
+steps:
+  - id: reach-prompt
+    name: Find the console (logged in or at the login prompt)
+    console:
+      - expect: '(login:|#)'
+        as: state
+        timeout: 120
+        nudge: 5
+
+  - id: login
+    name: Log in
+    when: { path: steps.reach-prompt.out.state, equals: '#', not: true }
+    console:
+      - send: admin
+      - expect: 'password:'
+        send: '{{inputs.admin_password}}'
+      - expect: '#\s*$'
+        timeout: 60
+
+  - id: load
+    name: Type the configuration
+    console:
+      - paste: |
+          config system console
+          set output standard
+          end
+      - paste: '{{inputs.config}}'
+        failOn: 'command parse error|Command fail|Unknown action|node_check_object fail|value parse error|Return code -\d+'
+        settle: 8
+        timeout: 1800
+      - expect: '#\s*$'
+        timeout: 60

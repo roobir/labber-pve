@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Type a FortiGate configuration saved in the Store into the serial console, stopping if the FortiGate rejects any line."
+}

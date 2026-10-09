@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Log in to a freshly deployed PAN-OS firewall over the serial console, set the admin password and a fixed management IP."
+}

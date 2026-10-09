@@ -1,0 +1,59 @@
+title: PAN-OS load a stored configuration (console, set commands)
+vendor: paloalto_panos
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE.
+# Types a configuration written as `set ...` commands (kept in the Store as a
+# `text` entry) in configuration mode, fails if the firewall rejects a line,
+# then commits. Works for Panorama too.
+#
+# Capture the text from an existing firewall:
+#   > set cli config-output-format set
+#   > configure
+#   # show
+# Leave out device-specific lines (deviceconfig system ip-address, hostname,
+# the admin user) -- they would change this node's management settings.
+
+inputs:
+  - { id: target, type: target, kind: [paloalto_panos, paloalto_panorama], label: PAN-OS or Panorama node }
+  - { id: admin_password, type: store, storeType: secret, default: password-simple, label: Admin password }
+  - { id: config, type: store, storeType: text, label: Configuration (Store text entry of set commands) }
+
+steps:
+  - id: reach-prompt
+    name: Find the console (logged in or at the login prompt)
+    console:
+      - expect: '(login:|>)'
+        as: state
+        timeout: 120
+        nudge: 5
+
+  - id: login
+    name: Log in
+    when: { path: steps.reach-prompt.out.state, equals: '>', not: true }
+    console:
+      - send: admin
+      - expect: 'password:'
+        send: '{{inputs.admin_password}}'
+      - expect: '>\s*$'
+        timeout: 120
+
+  - id: load
+    name: Type the configuration
+    console:
+      - send: set cli pager off
+      - expect: '>\s*$'
+      - send: configure
+      - expect: '#\s*$'
+      - paste: '{{inputs.config}}'
+        failOn: 'Invalid syntax|Unknown command|Validation Error|Server error|is not a valid'
+        settle: 8
+        timeout: 1800
+
+  - id: commit
+    name: Commit
+    console:
+      - send: commit
+      - expect: 'committed successfully'
+        timeout: 1200
+      - send: exit
+      - expect: '>\s*$'

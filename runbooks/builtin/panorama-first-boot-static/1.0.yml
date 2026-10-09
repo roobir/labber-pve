@@ -1,0 +1,71 @@
+title: Panorama first boot with a static management IP (console)
+vendor: paloalto_panorama
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE. Panorama's factory management address is the static 192.168.1.1/24, so this sets the address you choose.
+# Sets a static management address in configuration mode and commits.
+
+inputs:
+  - { id: target, type: target, kind: paloalto_panorama, label: Panorama node }
+  - { id: default_password, type: string, default: admin, label: Factory admin password }
+  - { id: new_password, type: store, storeType: secret, default: password-simple, label: New admin password }
+  - { id: ip, type: string, label: Management IP, placeholder: 192.168.99.50 }
+  - { id: prefix, type: number, default: 24, label: Prefix length }
+  - { id: gateway, type: string, label: Default gateway, placeholder: 192.168.99.1 }
+
+steps:
+  - id: login
+    name: Wait for the login prompt and log in
+    console:
+      - expect: 'login:'
+        timeout: 1800            # PAN-OS finishes an automatic commit before it accepts logins
+        nudge: 10
+        send: admin
+      - expect: 'password:'
+        send: '{{inputs.default_password}}'
+
+  - id: change-password
+    name: Answer the forced password change
+    console:
+      - expect: 'old password'
+        optional: true
+        timeout: 60
+        send: '{{inputs.default_password}}'
+      - expect: 'new password'
+        optional: true
+        timeout: 20
+        send: '{{inputs.new_password}}'
+      - expect: 'confirm password'
+        optional: true
+        timeout: 20
+        send: '{{inputs.new_password}}'
+      - expect: '>\s*$'
+        timeout: 120
+
+  - id: no-paging
+    name: Turn off paging and confirmation prompts
+    console:
+      - send: set cli pager off
+      - expect: '>\s*$'
+      - send: set cli confirmation-prompt off
+      - expect: '>\s*$'
+
+  - id: configure
+    name: Set the static management address
+    console:
+      - send: configure
+      - expect: '#\s*$'
+      - paste: |
+          set deviceconfig system type static
+          set deviceconfig system ip-address {{inputs.ip}} netmask {{inputs.prefix | netmask}} default-gateway {{inputs.gateway}}
+        failOn: 'Invalid syntax|Unknown command|Validation Error|Server error|is not a valid'
+        settle: 3
+      - send: commit
+      - expect: 'committed successfully'
+        timeout: 900
+      - send: exit
+      - expect: '>\s*$'
+
+  - id: update-lab
+    name: Save the IP on the node in labber-pve
+    lab:
+      setMgmtIp: { ip: '{{inputs.ip}}', port: 443 }

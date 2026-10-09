@@ -1,0 +1,63 @@
+title: Palo Alto PAN-OS first boot -- set the password, read the DHCP management IP (console)
+vendor: paloalto_panos
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE. Follows PAN-OS's documented first
+# login: admin / admin, then a forced change to a password of 8+ characters
+# with upper case, lower case and a digit or symbol. Reads the management
+# address with `show interface management` and saves it on the node.
+
+inputs:
+  - { id: target, type: target, kind: paloalto_panos, label: PAN-OS node }
+  - { id: default_password, type: string, default: admin, label: Factory admin password }
+  - { id: new_password, type: store, storeType: secret, default: password-simple, label: New admin password }
+
+steps:
+  - id: login
+    name: Wait for the login prompt and log in
+    console:
+      - expect: 'login:'
+        timeout: 1800            # PAN-OS finishes an automatic commit before it accepts logins
+        nudge: 10
+        send: admin
+      - expect: 'password:'
+        send: '{{inputs.default_password}}'
+
+  - id: change-password
+    name: Answer the forced password change
+    console:
+      - expect: 'old password'
+        optional: true
+        timeout: 60
+        send: '{{inputs.default_password}}'
+      - expect: 'new password'
+        optional: true
+        timeout: 20
+        send: '{{inputs.new_password}}'
+      - expect: 'confirm password'
+        optional: true
+        timeout: 20
+        send: '{{inputs.new_password}}'
+      - expect: '>\s*$'
+        timeout: 120
+
+  - id: no-paging
+    name: Turn off paging and confirmation prompts
+    console:
+      - send: set cli pager off
+      - expect: '>\s*$'
+      - send: set cli confirmation-prompt off
+      - expect: '>\s*$'
+
+  - id: detect-ip
+    name: Read the management IP
+    console:
+      - send: show interface management
+      - expect: 'Ip address:\s*(?!0\.0\.0\.0)(\d+\.\d+\.\d+\.\d+)'
+        as: ip
+        timeout: 30
+      - expect: '>\s*$'
+
+  - id: update-lab
+    name: Save the IP on the node in labber-pve
+    lab:
+      setMgmtIp: { ip: '{{steps.detect-ip.out.ip}}', port: 443 }

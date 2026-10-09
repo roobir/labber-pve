@@ -1,0 +1,53 @@
+title: F5 BIG-IP clear the web GUI forced password change (REST)
+vendor: f5_bigip_ve
+
+# A new BIG-IP marks the "admin" account's password as expired, so the first
+# web login is forced to change it, even though f5-first-boot already set the
+# password from the console. F5 clears that flag when the admin changes its
+# *own* password through the REST API (supplying the old one), which is what
+# this does -- by default to the same value, so nothing else changes.
+#
+# After f5-first-boot the REST service takes a few minutes to come up. The
+# first step waits for the web layer to answer; the change itself is then
+# retried until the service behind it has registered its paths (see the notes
+# on each step). Verified on BIG-IP 17.5.1.5.
+# Run order: f5-first-boot -> f5-web-pass-change -> f5-install-license
+
+inputs:
+  - { id: target, type: target, kind: f5_bigip_ve, label: F5 node }
+  - { id: admin_user, type: string, default: admin, label: Admin user }
+  - { id: current_password, type: store, storeType: secret, default: password-simple, label: Current admin password }
+  - { id: new_password, type: store, storeType: secret, default: password-simple, label: New admin password (same value is fine) }
+
+steps:
+  - id: wait-for-rest
+    name: Wait for the management API to come up
+    http:
+      method: GET
+      path: /mgmt/shared/authz/users/{{inputs.admin_user}}
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.current_password}}" }
+      # 200 or 401 (password still expired) both mean the web layer is up.
+      # 404 / 503 / refused mean F5 is still starting.
+      poll: { every: 15, timeout: 1200, until: { status: [200, 401, 403, 405] } }
+
+  - id: change-password
+    name: Change the admin password (clears the forced change)
+    http:
+      method: PATCH
+      path: /mgmt/shared/authz/users/{{inputs.admin_user}}
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.current_password}}" }
+      json: { oldPassword: "{{inputs.current_password}}", password: "{{inputs.new_password}}" }
+      timeout: 60
+      # The 401 from the wait step comes from the web layer in front of the
+      # service that handles this call, so it does not prove that service has
+      # registered the path yet. Right after boot the change can still get
+      # 404 "Public URI path not registered" (or 503): ask again.
+      retry: { on: [404, 502, 503], every: 10, timeout: 900 }
+
+  - id: verify
+    name: Confirm the new password works
+    http:
+      method: GET
+      path: /mgmt/tm/sys/version
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.new_password}}" }
+      poll: { every: 10, timeout: 120, initialDelay: 3, until: { status: 200 } }

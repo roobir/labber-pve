@@ -1,0 +1,42 @@
+title: Palo Alto PAN-OS fetch a license by auth code (XML API)
+vendor: paloalto_panos
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE. Gets an API key with the admin
+# login, then asks the firewall to fetch its license for an auth code (the
+# firewall must reach Palo Alto's licensing service) and shows the result.
+# Works for Panorama too. The XML shapes follow PAN-OS's documented `request license fetch` /
+# `request license info` commands.
+
+inputs:
+  - { id: target, type: target, kind: [paloalto_panos, paloalto_panorama], label: PAN-OS or Panorama node }
+  - { id: admin_user, type: string, default: admin, label: Admin user }
+  - { id: admin_password, type: store, storeType: secret, default: password-simple, label: Admin password }
+  - { id: auth_code, type: store, label: Auth code (from the Store) }
+
+steps:
+  - id: keygen
+    name: Get an API key
+    http:
+      path: /api/
+      query: { type: keygen, user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      expect: { status: 200, match: "status=.success" }
+      extract: { key: { regex: "<key>(.+?)</key>" } }
+
+  - id: fetch-license
+    name: Fetch the license for the auth code
+    http:
+      path: /api/
+      headers: { X-PAN-KEY: "{{steps.keygen.out.key}}" }
+      query:
+        type: op
+        cmd: "<request><license><fetch><auth-code>{{inputs.auth_code}}</auth-code></fetch></license></request>"
+      expect: { status: 200, match: "status=.success" }
+      timeout: 180
+
+  - id: license-info
+    name: Show the installed licenses
+    http:
+      path: /api/
+      headers: { X-PAN-KEY: "{{steps.keygen.out.key}}" }
+      query: { type: op, cmd: "<request><license><info></info></license></request>" }
+      expect: { status: 200, match: "status=.success" }
