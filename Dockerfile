@@ -1,9 +1,16 @@
-FROM node:20-alpine
+# syntax=docker/dockerfile:1
+
+# Build stage: always runs on the machine doing the build (never emulated),
+# whatever platform the image is being built FOR. That is safe because every
+# dependency here is plain JavaScript (no native addons), and it avoids running
+# Node under QEMU when cross-building the arm64 image, which is slow and has
+# crashed with "Illegal instruction" on CI runners.
+FROM --platform=$BUILDPLATFORM node:20-alpine AS build
 
 WORKDIR /app
 
-COPY package.json ./
-RUN npm install --omit=dev
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
 COPY server.js ./
 COPY lib ./lib
@@ -18,6 +25,15 @@ COPY runbooks ./runbooks
 RUN mkdir -p /labs/.state && \
     chgrp -R 0 /app /labs && \
     chmod -R g=u /app /labs
+
+# Final image: just the files above (ownership and permissions are carried
+# over by COPY), so there is no RUN step left to emulate on another platform.
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY --from=build /app /app
+COPY --from=build /labs /labs
 
 ENV LABS_DIR=/labs
 VOLUME /labs

@@ -70,7 +70,7 @@ podman run -d --name labber-pve \
 Everything the app creates (settings, users, the Store, runbooks, lab
 state) lives under `/labs`, so keep that volume across upgrades. To
 update, pull the new image and recreate the container. Pin a version tag
-(`:0.2.0`) rather than `:latest` for anything you depend on.
+(`:0.2.1`) rather than `:latest` for anything you depend on.
 
 k3s/OpenShift: `kubectl apply -f k8s/pvc.yaml`, fill in
 `k8s/secret-example.yaml` with real values and apply it as a Secret

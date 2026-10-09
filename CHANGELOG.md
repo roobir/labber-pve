@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1
+
+### Fixed
+- The container image failed to build for arm64 on GitHub Actions: Node
+  crashed with "Illegal instruction" while installing packages under
+  emulation. The Dockerfile is now a two-stage build that installs the
+  (pure JavaScript) dependencies on the build machine and copies the result,
+  so no step runs under emulation. 0.2.0 has the same code but no published
+  image; use 0.2.1.
+
 ## 0.2.0
 
 ### Added

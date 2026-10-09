@@ -1,6 +1,6 @@
 {
   "name": "labber-pve",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "YAML-defined network/security lab builder for Proxmox VE",
   "main": "server.js",
