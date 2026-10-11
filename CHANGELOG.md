@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.2
+
+### Fixed
+- **Runbooks could store a value cut off mid-arrival** from the console: output
+  arrives in pieces, so an expect with `as:` could keep `192.0.2.1` while the
+  rest of `192.0.2.147` was still on its way (seen with a DHCP management IP),
+  or a return code of `1` instead of `127`. A capture that ends at the last
+  character received is now only accepted once the output pauses (1.5 s); the
+  line's own newline normally settles it at once. Fixes every runbook,
+  built-in or your own, with no new runbook versions. Expects without `as:`
+  are unchanged.
+
 ## 0.3.1
 
 ### Fixed
