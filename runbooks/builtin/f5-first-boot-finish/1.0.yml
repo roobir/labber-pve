@@ -1,0 +1,41 @@
+title: F5 BIG-IP finish a first boot that stopped after the login (console)
+vendor: f5_bigip_ve
+
+# For a node where f5-first-boot got through the login and the password
+# change but failed afterwards (for example the DHCP address had not arrived
+# yet). Running f5-first-boot again cannot work: the factory password no
+# longer works, so its login step has nothing to log in to.
+#
+# This does only what is left: waits for the management address, saves the
+# configuration and stores the address on the node. It expects the serial
+# console to still be logged in as root, which is how f5-first-boot leaves it.
+#
+# To use it on a lab that stopped partway, temporarily replace the failed
+# f5-first-boot entry in the node's `bootstrap:` list with this runbook (same
+# position, so progress still lines up) and press "bootstrap" to resume.
+
+inputs:
+  - { id: target, type: target, kind: f5_bigip_ve, label: F5 node }
+
+steps:
+  - id: detect-ip
+    name: Read the management IP
+    console:
+      # Ask until the address is there instead of once.
+      - send: "for i in $(seq 1 60); do ip -4 -o addr show mgmt | grep -q 'inet ' && break; sleep 2; done; ip -4 -o addr show mgmt"
+      - expect: "inet (\\d+\\.\\d+\\.\\d+\\.\\d+)/"
+        as: ip
+        timeout: 150
+      - expect: "#\\s*$"
+
+  - id: save-config
+    name: Save the F5 configuration
+    console:
+      - send: "tmsh save sys config"
+      - expect: "#\\s*$"
+        timeout: 120
+
+  - id: update-lab
+    name: Save the IP on the node in labber-pve
+    lab:
+      setMgmtIp: { ip: "{{steps.detect-ip.out.ip}}", port: 443 }

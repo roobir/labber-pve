@@ -26,7 +26,7 @@
   const newLabBtn = document.getElementById('labs-new-btn');
 
   let currentLab = null;
-  let ws = null;
+  let stream = null; // LabsStream following the lab operation shown in the output pane
   let term = null;
   let fitAddon = null;
 
@@ -196,6 +196,7 @@
     yamlEl.value = content;
     setEditingEnabled(true);
     renderReservation();
+    follow(name); // its latest deploy/destroy/... output, if the server has one
   }
 
   async function save() {
@@ -226,57 +227,65 @@
     };
     const question = questions[action] || (warn ? `Run ${action} on "${currentLab}"?` : null);
     if (question && !window.confirm(warn ? `${warn}\n\n${question}` : question)) return;
-    if (ws) {
+    if (stream) {
       setMessage('a command is already running', true);
       return;
     }
+    follow(currentLab, action);
+  }
 
-    ensureTerm();
-    term.clear();
-    setMessage(`running ${action}...`);
+  function stopFollowing() {
+    if (stream) {
+      stream.close();
+      stream = null;
+    }
+  }
 
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${window.location.host}/ws/lab`);
+  // Show a lab operation's output in the pane. With `action` it starts that
+  // operation; without, it only follows one the server already has (running,
+  // or the latest finished one) -- see public/js/labs-stream.js.
+  function follow(lab, action) {
+    stopFollowing();
+    // The terminal is only built once there is something to show: merely
+    // selecting a lab (which attaches to see if an operation is running) must
+    // not cost an xterm instance every time.
+    if (term) term.clear();
+    if (action) ensureTerm();
+    if (action) setMessage(`running ${action}...`);
+    const started = action;
 
-    ws.addEventListener('open', () => {
-      ws.send(JSON.stringify({ type: 'run', action, lab: currentLab }));
-    });
-
-    ws.addEventListener('message', (ev) => {
-      const msg = JSON.parse(ev.data);
-      if (msg.type === 'data') {
-        term.write(msg.data);
-      } else if (msg.type === 'error') {
-        setMessage(msg.message, true);
-        if (WindowManager.isMinimized('labs')) WindowManager.notify('labs', msg.message, true);
-      } else if (msg.type === 'done') {
+    stream = LabsStream.open({
+      lab,
+      action,
+      quietIfNone: !action,
+      write: (text) => { ensureTerm(); term.write(text); },
+      clear: () => { if (term) term.clear(); },
+      status: (text, isError) => {
+        setMessage(text, isError);
+        if (isError && WindowManager.isMinimized('labs')) WindowManager.notify('labs', text, true);
+      },
+      done: (msg, live) => {
+        stream = null;
+        if (!msg) return;
         const isError = msg.exitCode !== 0;
         const detail = isError && msg.error ? `: ${msg.error}` : '';
-        const text = `${action} finished (exit ${msg.exitCode})${detail}`;
+        const text = `${msg.action || started} finished (exit ${msg.exitCode})${detail}`;
         setMessage(text, isError);
-        // The deploy()/destroy() this ws is streaming keeps running
-        // server-side regardless of the client -- but this notification is
-        // the only way to know it actually reached a 'done' state, not just
-        // whether the socket happened to still be connected.
-        if (WindowManager.isMinimized('labs')) {
-          WindowManager.notify('labs', `${currentLab}: ${text}`, isError);
-        }
+        if (!live) return; // only replaying an earlier operation: nothing changed, no refresh needed
+        // The operation keeps running server-side regardless of the client, so
+        // this notification is the only way to know it reached 'done'.
+        if (WindowManager.isMinimized('labs')) WindowManager.notify('labs', `${lab}: ${text}`, isError);
         // loadList() rebuilds the whole list (that's how its status dots get
         // their fresh /api/status read) -- otherwise a lab deployed from
-        // within this modal keeps showing its pre-deploy dot (dim) forever,
-        // since loadList() is normally only called on open(). Re-mark the
-        // just-deployed lab active since loadList() doesn't know which row
+        // within this modal keeps showing its pre-deploy dot (dim) forever.
+        // Re-mark the lab active since loadList() doesn't know which row
         // was selected.
-        const deployedLab = currentLab;
         loadList().then(() => {
-          const itemEl = Array.from(listEl.querySelectorAll('.labs-list-item')).find((el) => el.textContent === deployedLab);
+          const itemEl = Array.from(listEl.querySelectorAll('.labs-list-item')).find((el) => el.textContent === lab);
           if (itemEl) itemEl.classList.add('active');
         });
-        if (ws) { ws.close(); ws = null; }
-      }
+      },
     });
-
-    ws.addEventListener('close', () => { ws = null; });
   }
 
   function open() {
@@ -297,7 +306,7 @@
   // new "keep watching, just hidden" option.
   function close() {
     overlay.classList.add('hidden');
-    if (ws) { ws.close(); ws = null; }
+    stopFollowing();
   }
 
   // Never touches ws -- deploy/destroy output keeps streaming into the

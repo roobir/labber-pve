@@ -111,6 +111,7 @@ function buildNodeOpsRoutes({ requireAuth }) {
       const vmid = labManager.getNodeVmid(req.params.name, req.params.node);
       if (action === 'start') await proxmox.startVm(vmid);
       else await proxmox.stopVm(vmid, { graceful: true });
+      labManager.invalidateVmStatuses();
       res.json({ ok: true, vmid, action });
     } catch (err) {
       res.status(400).json({ error: err.message });

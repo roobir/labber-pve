@@ -177,7 +177,7 @@ node; the `-static` one sets the address you choose instead.
 
 | Vendor | Runbooks | Password from the Store |
 | --- | --- | --- |
-| F5 BIG-IP | `f5-first-boot` (verified), `f5-first-boot-static` | `password-simple` |
+| F5 BIG-IP | `f5-first-boot` (verified), `f5-first-boot-dhcp` (waits for the DHCP address; use for new labs), `f5-first-boot-static`, `f5-first-boot-finish` | `password-simple` |
 | FortiGate | `fortigate-first-boot`, `fortigate-first-boot-static`, `fortigate-load-config` | `password-complex` |
 | FortiManager | `fortimanager-first-boot-static` (no DHCP) | `password-complex` |
 | Palo Alto PAN-OS | `paloalto-first-boot`, `paloalto-first-boot-static`, `paloalto-license-authcode`, `paloalto-load-config` | `password-simple` |
@@ -245,6 +245,16 @@ After a bootstrap failure, fix the cause (a Store entry, the runbook, the
 node) and press **bootstrap** in the Labs window: it resumes each node from
 the runbook that failed and does not repeat finished ones — important because
 runbooks like `f5-first-boot` cannot run twice on the same node.
+
+Progress is kept as *how many entries of the node's `bootstrap:` list are
+done*, not by name. So you can swap the failed entry for a different runbook
+(or a fixed copy under a new name) at the same position and resume; do not
+insert or remove entries before it. A failed runbook restarts from its first
+step, which matters when the failure came late: `f5-first-boot` cannot be run
+again after its password change (the factory login no longer works). For that
+case swap in `f5-first-boot-finish`, which does only the remaining steps (read
+the management IP, save, store it on the node) on the console that is still
+logged in.
 
 ### Lab variables
 

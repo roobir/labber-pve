@@ -55,3 +55,22 @@ version before relying on them, rather than assuming guaranteed-correct:
 Everything else (clone, VM config/networking, start/stop/delete, task
 polling, auth, the console/lab websocket bridges) is grounded in
 Proxmox's documented API shape and has been run against a real node.
+
+## Keeping the web UI cheap
+
+The dashboard polls, so the cost of one poll is what matters:
+
+- **One Proxmox call per poll, shared.** `/api/status` and `/api/stats` both
+  need every node's power state. `lab-state.getAllStatuses()` asks Proxmox for
+  the whole VM list once (`GET /nodes/{node}/qemu`) and shares that answer for
+  2 s between both endpoints and every open tab; starting/stopping a node or
+  finishing a deploy clears it. (Before: one call per node per lab, twice per
+  cycle.) `getLabStatus()` for a single lab stays exact and live -- the console
+  uses it.
+- **Proxmox connections are reused.** `proxmox-request.js` keeps one keep-alive
+  connection pool per set of Proxmox settings instead of a new TLS handshake
+  per call.
+- **Hidden tabs do not poll**; they refresh the moment the tab is shown.
+- **Run history is indexed.** The Runs tab re-reads only run files that changed.
+- **Responses are gzip-compressed** (HTML/JS/CSS/JSON).
+- **Live logs build their terminal lazily**, only when there is output to show.

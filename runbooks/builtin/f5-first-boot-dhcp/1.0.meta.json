@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "F5 first boot over the serial console with DHCP: set the password, wait for the DHCP management IP, save it on the node."
+}

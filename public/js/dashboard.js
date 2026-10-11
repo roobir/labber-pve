@@ -1,5 +1,5 @@
 // Polls /api/status (every lab file + deployed ones' live PVE node status)
-// and /api/stats (host CPU/mem/disk) on a 5s interval -- simplest thing
+// and /api/stats (host CPU/mem/disk) on 5s / 10s intervals -- simplest thing
 // that works at homelab scale, rather than a push/event stream. Card/panel
 // rendering itself lives in dashboard-cards.js (window.DashboardCards) --
 // this file owns the polling loop and the stats-bar tiles, and exposes
@@ -40,7 +40,7 @@
 
   // Proxmox node CPU/mem/disk -- separate poll from /api/status below since
   // it's a different endpoint (/api/stats, shared with /api/public/stats),
-  // but folded into the same 5s refresh() tick rather than its own timer.
+  // polled on its own, slower timer (see the bottom of this file).
   async function refreshHostStats() {
     let data;
     try {
@@ -129,8 +129,15 @@
 
   refresh();
   refreshHostStats();
-  setInterval(refresh, 5000);
-  setInterval(refreshHostStats, 5000);
+  // Polling is for a page someone is looking at: a hidden tab skips its
+  // ticks (an idle background tab used to keep the server and Proxmox busy
+  // all day) and catches up the moment it is shown again. Host stats change
+  // slowly and the server only samples them every 10s, so they poll at that.
+  setInterval(() => { if (!document.hidden) refresh(); }, 5000);
+  setInterval(() => { if (!document.hidden) refreshHostStats(); }, 10000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) { refresh(); refreshHostStats(); }
+  });
 
   window.Dashboard = { refresh };
 })();

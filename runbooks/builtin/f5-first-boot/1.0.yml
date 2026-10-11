@@ -57,10 +57,12 @@ steps:
   - id: detect-ip
     name: Read the management IP
     console:
-      - send: "ip -4 -o addr show mgmt"
+      # DHCP can answer a little after the login works (the network service is
+      # still restarting), so ask until the address is there instead of once.
+      - send: "for i in $(seq 1 60); do ip -4 -o addr show mgmt | grep -q 'inet ' && break; sleep 2; done; ip -4 -o addr show mgmt"
       - expect: "inet (\\d+\\.\\d+\\.\\d+\\.\\d+)/"
         as: ip
-        timeout: 30
+        timeout: 150
       - expect: "#\\s*$"
 
   - id: save-config

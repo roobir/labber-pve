@@ -21,6 +21,7 @@
     }
 
     async function refresh() {
+      if (document.hidden) return;
       try {
         const runs = await api('GET', '/api/runs');
         tbody.replaceChildren(...(runs.length ? runs.map(row) : [h('tr', {}, h('td', { colspan: 6, class: 'rb-empty' }, 'no runs yet'))]));

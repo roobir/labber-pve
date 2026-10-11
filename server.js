@@ -1,4 +1,5 @@
 const express = require('express');
+const compression = require('compression');
 const http = require('http');
 const path = require('path');
 const multer = require('multer');
@@ -17,6 +18,7 @@ const guiProxy = require('./lib/gui-proxy');
 const { handleConnection: handleLabConnection } = require('./lib/lab-bridge');
 const { handleConnection: handleRunbookConnection } = require('./lib/runbook-bridge');
 const { seedBuiltins } = require('./lib/runbooks/seed');
+const { attachHeartbeat } = require('./lib/ws-heartbeat');
 
 const { buildLabsRoutes } = require('./routes/labs');
 const { buildNodeOpsRoutes } = require('./routes/node-ops');
@@ -58,6 +60,11 @@ if (process.env.TRUST_PROXY) {
 // checked inside the router itself), so it doesn't need sessionMiddleware
 // first.
 app.use('/api/relay', buildApiRelayRoutes({ apiTokens, apiSettings, labManager }));
+
+// gzip for the page's HTML/JS/CSS and the JSON APIs (the status poll, Store
+// entries holding whole configs). After the relay on purpose: proxied device
+// traffic goes through untouched.
+app.use(compression());
 
 // 10 MB, not Express's 100 KB default: the Store holds whole device
 // configurations as text entries (everything here is behind a login).
@@ -120,6 +127,7 @@ app.use((err, req, res, next) => {
 const server = http.createServer(app);
 const WS_PATHS = ['/ws/console', '/ws/lab', '/ws/runbook'];
 const wss = new WebSocketServer({ noServer: true });
+attachHeartbeat(wss, Number(process.env.WS_HEARTBEAT_MS) || undefined); // keep live logs/consoles open through proxy idle timeouts
 
 // express-session needs a res-like object to hook into; the upgrade request
 // never gets a real one, so a minimal stub is enough since we're only

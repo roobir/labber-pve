@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Finish a first boot that stopped after the password change: wait for the DHCP management IP, save the config and store the IP on the node."
+}

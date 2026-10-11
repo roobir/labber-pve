@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.2.2
+
+### Fixed
+- **The live deploy / bootstrap log no longer freezes behind a reverse
+  proxy.** A long quiet runbook step (an appliance still booting) let the
+  proxy drop the log's WebSocket while the work carried on. The server now
+  pings every WebSocket every 25 s, bootstrap prints `still running "<step>"`
+  once a minute during a long step, and a connection that still drops
+  reconnects and is replayed everything it missed. Selecting a lab also shows
+  its latest operation's log.
+- **`f5-first-boot` read the DHCP address only once** and failed when the
+  network service was still restarting after the login. It now waits up to two
+  minutes for the address. The same fix ships as `f5-first-boot-dhcp`, a new
+  runbook name, so an existing library gets it without editing `f5-first-boot`.
+- Library seeding never overwrites an existing runbook version, so edit your
+  copy of `f5-first-boot` (replace the "Read the management IP" step) or use
+  `f5-first-boot-dhcp`.
+
+### Added
+- `f5-first-boot-finish`: finishes a first boot that stopped after the
+  password change (reads the IP, saves, stores it on the node). Running
+  `f5-first-boot` again cannot work at that point.
+- `docs/RUNBOOKS.md`: how resume works (progress is the count of finished
+  entries in a node's `bootstrap:` list, so an entry can be swapped in place).
+
+### Changed
+- **Much less load on Proxmox and the browser.** One Proxmox call per
+  dashboard refresh instead of one per node (shared for 2 s between the status
+  and stats endpoints and every open tab); Proxmox connections are pooled;
+  the Runs tab re-reads only changed run files; lab files are parsed once per
+  change; hidden browser tabs stop polling; responses are gzip-compressed; the
+  lab log terminal is built only when there is output to show.
+- Dependency security updates (`npm audit` is clean): express, multer,
+  js-yaml, undici, qs and proxy-addr, within the same version ranges.
+
+### Container image
+- The two-stage, arm64-safe Dockerfile from 0.2.1 is unchanged. The new
+  dependency (`compression`) and the updated ones are pure JavaScript, like the
+  rest, so the build still installs them on the build machine and copies the
+  result; nothing runs under QEMU emulation. Keep that Dockerfile as it is.
+
 ## 0.2.1
 
 ### Fixed

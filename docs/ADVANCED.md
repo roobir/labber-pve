@@ -202,3 +202,26 @@ test)" — so other engineers know someone is working on the lab: 4 hours, 8, 24
 - A reservation ends by itself when its time is up, and survives a destroy +
   redeploy (it is kept in `LABS_DIR/.config/reservations.json`, not in the lab
   file).
+
+## Live logs behind a reverse proxy
+
+The deploy / bootstrap log and the consoles are WebSockets. Most reverse
+proxies close a connection that carries no data for a while (nginx's
+`proxy_read_timeout` defaults to 60 s), and a runbook can legitimately be
+quiet for minutes -- an appliance booting, services restarting.
+
+Three things keep the log usable:
+
+- the server pings every WebSocket every 25 s (`WS_HEARTBEAT_MS` to change),
+  so the connection is never idle;
+- bootstrap prints `still running "<step>" (3m)` once a minute during a long
+  step (`BOOTSTRAP_HEARTBEAT_MS` to change);
+- an operation belongs to the lab, not the browser connection. If the
+  connection still drops, the page says "connection lost -- the operation keeps
+  running on the server; reconnecting", reconnects, and is sent the whole log
+  so far. Selecting a lab also shows its latest operation's log.
+
+The log is kept in memory (last 5000 lines of each lab's latest operation), so
+a restart of the app clears it; the Runs tab remains the permanent record. If
+your proxy still cuts connections, raise its WebSocket timeout (nginx:
+`proxy_read_timeout 3600s;`).
