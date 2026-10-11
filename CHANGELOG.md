@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.1
+
+### Fixed
+- **web rp behind nginx / NPMplus returned 502** for F5, Palo Alto and Panorama:
+  pages the proxy edits were sent with both `Content-Length` and
+  `Transfer-Encoding`, which nginx rejects (HAProxy and Traefik tolerate it).
+  Replies are now framed cleanly, with no hop-by-hop headers from the device.
+- A device dropping the connection mid-reply no longer leaves the browser
+  waiting: the frame shows an error page, or the reply ends at once.
+- The web rp's cache of edited PAN-OS files no longer stores `Set-Cookie`, so
+  a cookie meant for one user is never served to another.
+
+### Docs
+- nginx / NPMplus settings for the web rp host (header buffers, timeout).
+
 ## 0.3.0
 
 ### Changed

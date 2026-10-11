@@ -42,7 +42,22 @@ never needs to reach the device itself. For every vendor:
 - **Framing headers** (`X-Frame-Options`, CSP, HSTS) are removed.
 - Connections to the device are pooled (6 per node, what a browser uses).
 - If the device can't be reached, the frame shows what to check instead of
-  a bare 502.
+  a bare 502. A device that drops the connection mid-reply ends the reply
+  too, rather than leaving the browser waiting.
+- Responses are re-framed for the proxy in front: no hop-by-hop headers from
+  the device, and never `Content-Length` together with `Transfer-Encoding`
+  (nginx and NPMplus answer that with a 502).
+
+With nginx or NPMplus in front, F5 and PAN-OS send large headers, so give
+the `*.<GUI domain>` host room for them (NPMplus: the proxy host's
+Advanced tab), and enable websockets:
+
+```nginx
+proxy_buffer_size       64k;
+proxy_buffers           8 64k;
+proxy_busy_buffers_size 128k;
+proxy_read_timeout      3600s;
+```
 
 Vendor-specific fixes live in `lib/gui-proxy/vendor-rewrites.js`: narrow,
 literal patches for the frame-busting scripts F5 BIG-IP and PAN-OS/Panorama
