@@ -47,9 +47,10 @@ Only two secrets are required to boot the app — everything else
 immediately with no restart.
 
 ```bash
-# 1. Generate the two required secrets
-node -e "console.log(require('bcryptjs').hashSync('yourpassword', 10))"   # DASHBOARD_PASSWORD_HASH
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"  # SESSION_SECRET
+# 1. Generate the two required secrets (no local Node.js needed)
+podman run --rm ghcr.io/roobir/labber-pve:0.3.0 \
+  node -e "console.log(require('bcryptjs').hashSync('yourpassword', 10))"   # DASHBOARD_PASSWORD_HASH
+openssl rand -hex 32                                                         # SESSION_SECRET
 
 # 2. Run it (Docker or Podman)
 docker build -t labber-pve .
@@ -70,7 +71,7 @@ podman run -d --name labber-pve \
 Everything the app creates (settings, users, the Store, runbooks, lab
 state) lives under `/labs`, so keep that volume across upgrades. To
 update, pull the new image and recreate the container. Pin a version tag
-(`:0.2.2`) rather than `:latest` for anything you depend on.
+(`:0.3.0`) rather than `:latest` for anything you depend on.
 
 k3s/OpenShift: `kubectl apply -f k8s/pvc.yaml`, fill in
 `k8s/secret-example.yaml` with real values and apply it as a Secret
@@ -207,6 +208,9 @@ appliance management interfaces:
   setup, and the full `web rp` walkthrough.
 - [docs/RUNBOOKS.md](docs/RUNBOOKS.md) — runbooks, the Store, versions
   and locking, lab bootstrap, and the shipped vendor runbooks.
+- [docs/CHECKPOINT.md](docs/CHECKPOINT.md) — Check Point labs end to
+  end: one Gaia template, then standalone, management-only, gateway-only,
+  gateway + SMS or cluster setups from runbooks, with sample lab files.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module layout and
   known limitations.
 

@@ -1,0 +1,23 @@
+# Check Point standalone: one Gaia box that is both Security Gateway and
+# Security Management Server -- the smallest working Check Point lab.
+# See docs/CHECKPOINT.md. Store: password-complex, checkpoint-admin.
+
+vars:
+  cp_install_ip: 192.168.1.1   # the IP typed during the one-time Gaia install
+  mgmt_gw: 192.168.99.1
+
+nodes:
+  cp-standalone:
+    kind: checkpoint_gaia
+    bootstrap:
+      - runbook: checkpoint-set-mgmt-ip
+        inputs: { original_ip: "{{vars.cp_install_ip}}", ip: 192.168.99.80, gateway: "{{vars.mgmt_gw}}" }
+      - runbook: checkpoint-first-time-config
+        inputs: { role: standalone, hostname: cp-standalone }
+
+links:
+  - name: mgmt
+    external: true
+    bridge: vmbr0
+    endpoints:
+      - { node: cp-standalone, interface: net0 }

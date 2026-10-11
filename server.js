@@ -32,6 +32,7 @@ const { buildRunbooksRoutes } = require('./routes/runbooks');
 const { buildStoreRoutes } = require('./routes/store');
 const { buildPresenceRoutes } = require('./routes/presence');
 const { buildReservationsRoutes } = require('./routes/reservations');
+const { buildTemplateCatalogRoutes } = require('./routes/template-catalog');
 
 hostStats.start();
 seedBuiltins();
@@ -65,6 +66,10 @@ app.use('/api/relay', buildApiRelayRoutes({ apiTokens, apiSettings, labManager }
 // entries holding whole configs). After the relay on purpose: proxied device
 // traffic goes through untouched.
 app.use(compression());
+
+// Liveness for container health checks (k8s probes, podman HEALTHCHECK):
+// unauthenticated, no session, says nothing about the app's data.
+app.get('/healthz', (req, res) => res.json({ ok: true }));
 
 // 10 MB, not Express's 100 KB default: the Store holds whole device
 // configurations as text entries (everything here is behind a login).
@@ -100,6 +105,7 @@ app.use(buildRunbooksRoutes({ requireAuth }));
 app.use(buildStoreRoutes({ requireAuth }));
 app.use(buildPresenceRoutes({ requireAuth }));
 app.use(buildReservationsRoutes({ requireAuth }));
+app.use(buildTemplateCatalogRoutes({ requireAuth }));
 
 // Unauthenticated, gated by its own enabled toggle -- see lib/public-routes.js.
 app.use(buildPublicRoutes({ apiSettings, getStats }));

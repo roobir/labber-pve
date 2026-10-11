@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "On the SMS: wait for the API and the gateway, add the gateway object, establish SIC, optionally install policy."
+}

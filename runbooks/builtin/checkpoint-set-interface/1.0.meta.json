@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Set an interface's IPv4 address and bring it up on Gaia (e.g. a cluster member's sync interface)."
+}

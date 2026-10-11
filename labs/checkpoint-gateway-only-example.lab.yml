@@ -1,0 +1,24 @@
+# Check Point gateway only: a Security Gateway with no management server in the
+# lab -- to connect to an SMS elsewhere (or one added later) with the SIC key.
+# Until a management server installs a policy it runs Check Point's
+# InitialPolicy. See docs/CHECKPOINT.md. Store: password-complex, checkpoint-sic.
+
+vars:
+  cp_install_ip: 192.168.1.1   # the IP typed during the one-time Gaia install
+  mgmt_gw: 192.168.99.1
+
+nodes:
+  cp-gw1:
+    kind: checkpoint_gaia
+    bootstrap:
+      - runbook: checkpoint-set-mgmt-ip
+        inputs: { original_ip: "{{vars.cp_install_ip}}", ip: 192.168.99.61, gateway: "{{vars.mgmt_gw}}" }
+      - runbook: checkpoint-first-time-config
+        inputs: { role: gateway, hostname: cp-gw1 }
+
+links:
+  - name: mgmt
+    external: true
+    bridge: vmbr0
+    endpoints:
+      - { node: cp-gw1, interface: net0 }

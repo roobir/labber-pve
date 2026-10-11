@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.3.0
+
+### Changed
+- **Node 24** (was Node 20, now end-of-life). Measured on the same workload:
+  API ~15% faster, static files ~2x, same start-up. Connections to lab
+  appliances keep Node 20's TLS tolerance (1024-bit DH still works).
+- **web rp is a more transparent proxy**: the device's own origin is sent as
+  Origin (requests and websockets), redirects to the device's own address stay
+  on the proxy, cookies become host-only. Readable error pages inside the frame.
+  New maximize and pop-out buttons on the embedded window.
+- Large files split along their features (deploy, lab state, dashboard cards,
+  new-lab wizard, web rp proxy) with no change in behavior.
+
+### Added
+- **Template editor** (Settings -> Templates): every kind's versions, the
+  default, which labs use each; add a template built by hand in Proxmox, make
+  default, rename, remove (mapping only), check it suits its kind, edit hw.
+- **Template uploads check first**: file type for the kind, version conflict,
+  storage content types, free space, VMID -- before any multi-GB upload.
+- **Check Point** from one Gaia template: runbooks to move a clone off the
+  install-time IP, set interfaces, run the first-time configuration as
+  standalone / gateway / cluster member / management server, and have the
+  management server add gateways and ClusterXL clusters. Guide and five sample
+  labs in docs/CHECKPOINT.md (runbooks are drafts until run on your Gaia).
+- `GET /healthz` and a container HEALTHCHECK; a dashboard banner when Proxmox
+  can't be reached or isn't configured.
+- Runbook engine: `fail` step, `when` lists (all must hold), templated `equals`.
+
+### Fixed
+- Staged template images are removed from Proxmox after import (they stayed
+  forever); concurrent template builds no longer pick the same VMID; ISO
+  templates no longer keep the installer ISO attached (finalize refuses while
+  the VM is still running).
+- "edit hw" failed for templates without a SCSI controller (e.g. Nexus 9000v).
+- Removed or renamed template versions could reappear after a restart.
+- Higher-contrast dim text; README: the web rp listener answers 404 (it always
+  starts) when no GUI domain is set.
+
+### Upgrading
+- No data migration: keep the /labs volume. Back it up first, pin `:0.3.0`,
+  keep `:0.2.2` to roll back to (it reads everything 0.3.0 writes; only the new
+  Check Point runbooks wouldn't run there).
+- The container image stays two-stage and arm64-safe; all dependencies are
+  pure JavaScript.
+
 ## 0.2.2
 
 ### Fixed

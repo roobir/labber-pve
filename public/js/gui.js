@@ -57,6 +57,8 @@
           <div class="term-titlebar-actions">
             <button type="button" class="term-minimize" title="minimize">&minus;</button>
             <button type="button" class="term-refresh" title="refresh">&#8635;</button>
+            <button type="button" class="gui-maximize" title="maximize / restore">&#9723;</button>
+            <button type="button" class="gui-popout" title="open in a new tab (still through the proxy)">&#8599;</button>
             <button type="button" class="term-close" title="close">&times;</button>
           </div>
         </div>
@@ -116,6 +118,13 @@
     overlay.querySelector('.term-close').addEventListener('click', close);
     overlay.querySelector('.term-minimize').addEventListener('click', minimize);
     overlay.querySelector('.term-refresh').addEventListener('click', refresh);
+    // Heavy appliance UIs want the whole screen; "maximize" fills the viewport
+    // and toggles back, "pop out" opens the same proxied address in a normal
+    // tab (no iframe, so no frame-busting quirks at all, same login session).
+    overlay.querySelector('.gui-maximize').addEventListener('click', () => win.classList.toggle('maximized'));
+    overlay.querySelector('.gui-popout').addEventListener('click', () => {
+      if (frame.src && frame.src !== 'about:blank') window.open(frame.src, '_blank', 'noopener');
+    });
     // Windows are meant to be usable side by side, unlike the full-screen
     // modals -- clicking one brings it above its siblings instead of a
     // shared backdrop swallowing the click.
@@ -124,6 +133,15 @@
     WindowManager.makeDraggable(win, titlebar);
 
     return { overlay, win, titleEl, frame, errorEl };
+  }
+
+  // How many trailing DNS labels two hostnames have in common.
+  function sharedSuffixLabels(a, b) {
+    const x = a.toLowerCase().split('.').reverse();
+    const y = b.toLowerCase().split('.').reverse();
+    let n = 0;
+    while (n < x.length && n < y.length && x[n] === y[n]) n++;
+    return n;
   }
 
   window.openEmbeddedGui = async function (node) {
@@ -171,14 +189,14 @@
       return;
     }
     // guiDomain can be a comma-separated list (see gui-proxy.js's
-    // resolveTarget()) -- e.g. both the plain dashboard hostname's GUI
-    // domain and the ".cloud." bypass one. Pick whichever candidate matches
-    // this page's own ".cloud."-ness, so a session on the bypass domain
-    // builds a bypass gui-proxy URL and vice versa, instead of always using
-    // the first configured entry regardless of which hostname got you here.
+    // resolveTarget()) when the dashboard is reachable under more than one
+    // hostname (say, through a reverse proxy and through a direct ingress).
+    // Use the GUI domain that belongs with the hostname this page was loaded
+    // from: the one sharing the longest DNS suffix with it (gui.labber.a.b for
+    // labber.a.b, gui.labber.cloud.a.b for labber.cloud.a.b), so the frame
+    // goes through the same front door as the dashboard. Ties keep list order.
     const domains = domainList.split(',').map((d) => d.trim()).filter(Boolean);
-    const onCloudBypass = location.hostname.includes('.cloud.');
-    const domain = domains.find((d) => d.includes('.cloud.') === onCloudBypass) || domains[0];
+    const domain = domains.reduce((best, d) => (sharedSuffixLabels(d, location.hostname) > sharedSuffixLabels(best, location.hostname) ? d : best), domains[0]);
     entry.frame.src = `https://${node.lab}--${node.name}.${domain}/`;
   };
 })();

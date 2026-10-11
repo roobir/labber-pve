@@ -182,6 +182,7 @@ node; the `-static` one sets the address you choose instead.
 | FortiManager | `fortimanager-first-boot-static` (no DHCP) | `password-complex` |
 | Palo Alto PAN-OS | `paloalto-first-boot`, `paloalto-first-boot-static`, `paloalto-license-authcode`, `paloalto-load-config` | `password-simple` |
 | Panorama | `panorama-first-boot-static` (no DHCP), also `paloalto-license-authcode` / `paloalto-load-config` | `password-simple` |
+| Check Point Gaia | `checkpoint-set-mgmt-ip`, `checkpoint-set-interface`, `checkpoint-first-time-config` (role), `checkpoint-sms-add-gateway`, `checkpoint-sms-add-cluster` -- see below | `password-complex` |
 | Nexus 9000v | `n9kv-first-boot`, `n9kv-first-boot-static` (skips POAP) | `password-complex` |
 | Catalyst 8000V | `c8000v-first-boot`, `c8000v-first-boot-static` (skips the setup dialog + autoinstall) | `password-complex` |
 | Cisco FTD | `ftd-first-boot`, `ftd-first-boot-static` | `password-complex` |
@@ -264,3 +265,43 @@ links or with other licenses, copy the lab file and edit only `vars:`. A value
 that is just a placeholder keeps its type (`cores: "{{vars.cores}}"` is a
 number). Saving a node's management IP or UUID/MAC pins back into the file
 keeps your placeholders intact.
+
+### Check Point: one template, every role
+
+Gaia's role (Security Gateway, cluster member, standalone gateway + management,
+Security Management Server) is chosen in its First Time Configuration Wizard,
+not by the installer, so one template serves them all:
+
+1. **Template.** Build it from the Gaia ISO (templates window), complete the
+   installer over the console -- it asks for a management IP; any address will
+   do -- and shut the VM down **before** the First Time Configuration Wizard.
+   Then **finalize**. New Gaia templates get a serial console; for an existing
+   one use Settings -> Templates -> edit hw -> serial0.
+2. **Per node**, in the lab file's `bootstrap:` list:
+
+| Runbook | What it does |
+| --- | --- |
+| `checkpoint-set-mgmt-ip` | Moves the clone off the shared install-time IP: checks the node has `original_ip`, sets the new IP and default route, saves. Re-running is safe. |
+| `checkpoint-set-interface` | Gives another interface an address and brings it up -- a cluster member's sync interface, a data interface. |
+| `checkpoint-first-time-config` | `role`: `gateway` (managed by an SMS), `cluster-member`, `standalone` (gateway + management on one box) or `sms`. Writes a `config_system` file, validates it with `--dry-run`, applies it, reboots. |
+| `checkpoint-sms-add-gateway` | On the SMS: waits for the API and for the gateway's SIC port, adds the gateway object (establishing SIC), optionally installs a policy. |
+| `checkpoint-sms-add-cluster` | On the SMS: the same for a two-member ClusterXL HA cluster (virtual IP + sync interface). |
+
+**[CHECKPOINT.md](CHECKPOINT.md) is the full walkthrough with five sample labs.**
+`labs/checkpoint-cluster-example.lab.yml` puts it together: an SMS, a two-member
+cluster and one more gateway. Put the install-time IP in the lab's `vars:` and
+pass it as `original_ip` to every node. List gateways and members **before**
+the SMS -- bootstrap runs nodes in file order, three at a time, and the SMS
+runbooks wait for the gateways to finish.
+
+Store entries: `password-complex` (Gaia admin and expert passwords),
+`checkpoint-sic` (SIC one-time key) and `checkpoint-admin` (SmartConsole
+administrator password) -- the last two letters and digits only, as Check
+Point requires. The SMS runbooks use `mgmt_cli -r true` on the SMS itself over
+the serial console, so the management API never has to accept remote calls.
+
+All five are drafts. Parameters follow Check Point's documentation
+(`config_system`, Gaia clish, the management API's `add simple-gateway` /
+`add simple-cluster`), and `config_system --dry-run` stops a bad
+configuration before anything is applied -- but each still needs one run on
+your Gaia version before locking.

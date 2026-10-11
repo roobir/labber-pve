@@ -241,6 +241,38 @@
     });
   }
 
+  // -> the preflight result, or null (after showing why) when the upload
+  // should not start.
+  async function preflight(versionLabel) {
+    const file = fileEl.files[0];
+    let check;
+    try {
+      const res = await fetch('/api/templates/preflight', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: kindEl.value,
+          versionLabel,
+          replaceExisting: replaceEl.checked,
+          vmid: vmidEl.value.trim(),
+          fileName: file.name,
+          fileSize: file.size,
+          diskSizeGB: diskSizeEl.value.trim(),
+        }),
+      });
+      check = await res.json();
+      if (!res.ok) throw new Error(check.error || `check failed (HTTP ${res.status})`);
+    } catch (err) {
+      check = { errors: [], warnings: [`could not run the pre-upload check (${err.message}) -- uploading anyway`] };
+    }
+    if (check.warnings.length) logEl.textContent = check.warnings.map((w) => `warning: ${w}`).join('\n') + '\n';
+    if (!check.errors.length) return check;
+    if (check.conflict) replaceRowEl.classList.remove('hidden');
+    setMessage(check.errors.join(' -- '), true);
+    setEditingEnabled(true);
+    return null;
+  }
+
   async function start(e) {
     e.preventDefault();
     if (!fileEl.files[0]) {
@@ -255,9 +287,16 @@
     currentKind = kindEl.value;
     currentVersionLabel = versionLabel;
     setEditingEnabled(false);
-    setMessage('uploading... 0%');
     logEl.textContent = '';
     finalizeRow.classList.add('hidden');
+
+    // Ask the server whether this build can work BEFORE sending the file:
+    // storage, free space, file type for this kind, VMID, version conflict.
+    setMessage('checking...');
+    const check = await preflight(versionLabel);
+    if (!check) return;
+
+    setMessage('uploading... 0%');
     setProgress('uploading', 0);
 
     const body = new FormData();

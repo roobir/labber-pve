@@ -1,154 +1,138 @@
-// Template VMID table (kind -> vmid, "built"/"not built yet" badge) + the
-// "edit hw" modal for an already-built golden template's non-disk config.
-// Exposes `window.SettingsTemplates` so settings-connection.js's own
-// load()/save()/currentPayload() can read and populate the per-kind vmid
-// fields this file owns, without either file needing to know the other's
-// internal DOM structure -- same window.X cross-file convention as
-// labs-editor.js/labs-wizard.js.
+// Settings -> Templates: the template editor. For every device kind, its
+// versions (label -> Proxmox template vmid), which one is the default, which
+// labs use each, and actions on them -- including adding a template that was
+// built by hand in Proxmox. Talks to /api/template-catalog (see
+// lib/template-catalog.js); only labber-pve's mapping changes, never a VM.
 (function () {
-  const tplListEl = document.getElementById('tpl-list');
-  let cachedVendors = [];
+  const listEl = document.getElementById('tpl-list');
+  const expanded = new Set(); // kinds left open across re-renders
+  let data = null;
 
-  const hwEditEl = document.getElementById('tpl-hw-edit');
-  const hwEditTitle = document.getElementById('tpl-hw-edit-title');
-  const hwCoresEl = document.getElementById('tpl-hw-cores');
-  const hwMemoryEl = document.getElementById('tpl-hw-memory');
-  const hwCpuEl = document.getElementById('tpl-hw-cpu');
-  const hwBiosEl = document.getElementById('tpl-hw-bios');
-  const hwMachineEl = document.getElementById('tpl-hw-machine');
-  const hwScsihwEl = document.getElementById('tpl-hw-scsihw');
-  const hwSerial0El = document.getElementById('tpl-hw-serial0');
-  const hwSaveBtn = document.getElementById('tpl-hw-save-btn');
-  const hwCancelBtn = document.getElementById('tpl-hw-cancel-btn');
-  const hwMessageEl = document.getElementById('tpl-hw-message');
-  let hwEditVmid = null;
+  function h(tag, props = {}, ...children) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === 'onclick') el.addEventListener('click', v);
+      else if (k === 'class') el.className = v;
+      else el[k] = v;
+    }
+    el.append(...children.filter((c) => c !== null && c !== undefined));
+    return el;
+  }
 
-  // Generated from /api/vendors (the same list the templates modal's kind
-  // picker uses) rather than hardcoded rows -- a hardcoded list is exactly
-  // what went stale when cisco_n9kv/cisco_c8000v were added as new device
-  // kinds without anyone remembering to also add a row here, leaving no way
-  // to see or edit their VMID/hardware even though the template itself
-  // built and saved correctly. This can't go stale the same way again.
+  async function call(method, url, body) {
+    const res = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+    const out = await res.json();
+    if (!res.ok) throw Object.assign(new Error(out.error || `HTTP ${res.status}`), { status: res.status, usedBy: out.usedBy });
+    return out;
+  }
+
+  const base = (kind) => `/api/template-catalog/${encodeURIComponent(kind)}/versions`;
+
+  // Runs an edit; on success re-renders from the returned catalog, otherwise
+  // shows the error under that kind. `confirmForce` turns an "in use" refusal
+  // into a question, then retries with force.
+  async function edit(kind, msgEl, method, url, body, confirmForce) {
+    try {
+      data = await call(method, url, body);
+      render();
+    } catch (err) {
+      if (err.status === 409 && err.usedBy && confirmForce && window.confirm(`${err.message}\n\nDo it anyway?`)) {
+        return edit(kind, msgEl, method, confirmForce(url), body && { ...body, force: true }, null);
+      }
+      msgEl.textContent = err.message;
+    }
+  }
+
+  function versionRow(k, v, msgEl, checkEl) {
+    const status = v.inProxmox === false ? h('span', { class: 'tpl-bad' }, ' missing in Proxmox')
+      : v.isTemplate === false ? h('span', { class: 'tpl-bad' }, ' not a template') : null;
+    const labelCell = h('td', {}, v.label, v.isDefault ? h('span', { class: 'tpl-default', title: 'default' }, ' ★') : null);
+    const url = `${base(k.kind)}/${encodeURIComponent(v.label)}`;
+    const rename = () => {
+      const input = h('input', { type: 'text', value: v.label, class: 'tpl-rename-input' });
+      const ok = h('button', { type: 'button', onclick: () => edit(k.kind, msgEl, 'POST', `${url}/rename`, { newLabel: input.value }, (u) => u) }, 'ok');
+      labelCell.replaceChildren(input, ok, h('button', { type: 'button', onclick: render }, 'cancel'));
+      input.focus();
+    };
+    const check = async () => {
+      checkEl.replaceChildren(h('div', { class: 'dim' }, `checking ${v.vmid}...`));
+      try {
+        const r = await call('GET', `/api/template-catalog/${encodeURIComponent(k.kind)}/check?vmid=${v.vmid}`);
+        checkEl.replaceChildren(h('div', { class: 'dim' }, `${v.label} (vmid ${v.vmid}):`), ...r.checks.map((c) => h('div', { class: `tpl-check-${c.level}` }, `${c.level === 'ok' ? '✓' : c.level === 'warn' ? '!' : '✗'} ${c.text}`)));
+      } catch (err) {
+        checkEl.replaceChildren(h('div', { class: 'tpl-check-error' }, err.message));
+      }
+    };
+    const remove = () => {
+      if (!window.confirm(`Remove version "${v.label}" (vmid ${v.vmid}) from labber-pve? The template stays in Proxmox.`)) return;
+      edit(k.kind, msgEl, 'DELETE', url, null, (u) => `${u}?force=1`);
+    };
+    return h('tr', {},
+      labelCell,
+      h('td', {}, `${v.vmid}`, v.name ? h('span', { class: 'dim' }, ` · ${v.name}`) : null, status),
+      h('td', { class: 'dim', title: v.usedBy.join('\n') }, v.usedBy.length ? `${v.usedBy.length} node(s)` : '--'),
+      h('td', { class: 'tpl-actions' },
+        v.isDefault ? null : h('button', { type: 'button', onclick: () => edit(k.kind, msgEl, 'POST', `${url}/default`) }, 'make default'),
+        h('button', { type: 'button', onclick: rename }, 'rename'),
+        h('button', { type: 'button', onclick: check }, 'check'),
+        h('button', { type: 'button', onclick: () => window.TemplateHw.open(v.vmid, `${k.label} ${v.label} (vmid ${v.vmid})`) }, 'edit hw'),
+        h('button', { type: 'button', onclick: remove }, 'remove')));
+  }
+
+  // Which kind/version already maps each Proxmox template, for the picker.
+  function mappedBy() {
+    const m = {};
+    for (const k of data.kinds) for (const v of k.versions) (m[v.vmid] ||= []).push(`${k.label} ${v.label}`);
+    return m;
+  }
+
+  function addForm(k, msgEl) {
+    const label = h('input', { type: 'text', placeholder: 'version, e.g. 17.5', class: 'tpl-add-label' });
+    const used = mappedBy();
+    const pick = h('select', { class: 'tpl-add-vmid' }, h('option', { value: '' }, data.proxmox.templates.length ? 'choose a Proxmox template...' : 'no templates found in Proxmox'),
+      ...data.proxmox.templates.map((t) => h('option', { value: String(t.vmid) }, `${t.vmid} · ${t.name}${used[t.vmid] ? `  (${used[t.vmid].join(', ')})` : ''}`)));
+    const makeDefault = h('input', { type: 'checkbox', class: 'tpl-add-default' });
+    const add = () => edit(k.kind, msgEl, 'POST', base(k.kind), { label: label.value, vmid: pick.value, makeDefault: makeDefault.checked });
+    return h('div', { class: 'tpl-add' }, label, pick, h('label', { class: 'checkbox-label' }, makeDefault, ' make default'), h('button', { type: 'button', onclick: add }, 'add version'));
+  }
+
+  function kindBlock(k) {
+    const def = k.versions.find((v) => v.isDefault);
+    const problems = k.versions.filter((v) => v.inProxmox === false || v.isTemplate === false).length;
+    const open = expanded.has(k.kind);
+    const msgEl = h('div', { class: 'labs-message tpl-msg' });
+    const checkEl = h('div', { class: 'tpl-check' });
+    const head = h('div', { class: 'tpl-kind-head', onclick: () => { if (open) expanded.delete(k.kind); else expanded.add(k.kind); render(); } },
+      h('span', { class: 'tpl-caret' }, open ? '▾ ' : '▸ '), h('span', { class: 'tpl-kind-name' }, k.label),
+      h('span', { class: 'dim' }, def ? `  default ${def.label} (vmid ${def.vmid})` : '  no template yet'),
+      h('span', { class: 'dim' }, k.versions.length > 1 ? ` · ${k.versions.length} versions` : ''),
+      problems ? h('span', { class: 'tpl-bad' }, ` · ${problems} problem(s)`) : null);
+    if (!open) return h('div', { class: 'tpl-kind' }, head);
+    const table = h('table', { class: 'tpl-versions' }, h('tr', {}, h('th', {}, 'version'), h('th', {}, 'template'), h('th', {}, 'used by'), h('th', {})),
+      ...k.versions.map((v) => versionRow(k, v, msgEl, checkEl)));
+    return h('div', { class: 'tpl-kind open' }, head, k.versions.length ? table : h('div', { class: 'dim' }, 'no versions yet -- build one from the templates window, or add one below'), checkEl, addForm(k, msgEl), msgEl);
+  }
+
+  function render() {
+    const note = data.proxmox.ok ? null : h('div', { class: 'tpl-bad' }, `Can't reach Proxmox (${data.proxmox.error}) -- showing labber-pve's mapping only.`);
+    listEl.replaceChildren(...[note, ...data.kinds.map(kindBlock)].filter(Boolean));
+  }
+
   async function renderTemplateRows() {
+    listEl.replaceChildren(h('div', { class: 'dim' }, 'loading templates...'));
     try {
-      const res = await fetch('/api/vendors');
-      cachedVendors = await res.json();
+      data = await call('GET', '/api/template-catalog');
+      render();
     } catch (err) {
-      cachedVendors = [];
-    }
-
-    tplListEl.innerHTML = '';
-    for (const v of cachedVendors) {
-      const row = document.createElement('div');
-      row.className = 'settings-tpl-row';
-
-      const label = document.createElement('label');
-      label.append(`${v.label} `);
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.id = `tpl-${v.kind}`;
-      input.autocomplete = 'off';
-      label.appendChild(input);
-
-      const badge = document.createElement('span');
-      badge.className = 'tpl-built-badge dim';
-      badge.textContent = v.configured ? 'built' : 'not built yet';
-
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'tpl-edit-hw-btn';
-      btn.textContent = 'edit hw';
-      btn.addEventListener('click', () => openHwEdit(v.kind, v.label));
-
-      row.append(label, badge, btn);
-      tplListEl.appendChild(row);
+      listEl.replaceChildren(h('div', { class: 'tpl-bad' }, `failed to load templates: ${err.message}`));
     }
   }
-
-  // Called by settings-connection.js's load() once /api/settings has
-  // returned -- fills each kind's vmid input from the saved config.
-  function populateTemplateValues(templates) {
-    for (const v of cachedVendors) {
-      document.getElementById(`tpl-${v.kind}`).value = (templates && templates[v.kind]) || '';
-    }
-  }
-
-  // Called by settings-connection.js's currentPayload() -- reads the vmid
-  // inputs this file owns back into the shape /api/settings expects.
-  function getTemplatesPayload() {
-    const templates = {};
-    for (const v of cachedVendors) {
-      templates[v.kind] = document.getElementById(`tpl-${v.kind}`).value.trim();
-    }
-    return templates;
-  }
-
-  function setHwMessage(text, isError) {
-    hwMessageEl.textContent = text || '';
-    hwMessageEl.style.color = isError ? 'var(--danger)' : 'var(--dim)';
-  }
-
-  // Proxmox leaves a template's cores/memory editable after `qm template` --
-  // fetches the vmid currently saved in this kind's field (not a fixed one),
-  // so this always edits whatever template is actually configured right now.
-  async function openHwEdit(kind, label) {
-    const vmid = document.getElementById(`tpl-${kind}`).value.trim();
-    if (!vmid) {
-      setHwMessage(`no vmid saved for "${label}" yet -- save one first`, true);
-      return;
-    }
-    hwEditVmid = vmid;
-    hwEditEl.classList.remove('hidden');
-    hwEditTitle.textContent = `${label} (vmid ${vmid})`;
-    setHwMessage('loading...');
-    try {
-      const res = await fetch(`/api/vms/${vmid}/config`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'failed to load');
-      hwCoresEl.value = data.cores || '';
-      hwMemoryEl.value = data.memory || '';
-      hwCpuEl.value = data.cpu || '';
-      hwBiosEl.value = data.bios || 'seabios';
-      hwMachineEl.value = data.machine || '';
-      hwScsihwEl.value = data.scsihw || '';
-      hwSerial0El.checked = !!data.serial0;
-      setHwMessage('');
-    } catch (err) {
-      setHwMessage(err.message, true);
-    }
-  }
-
-  async function saveHwEdit() {
-    setHwMessage('saving...');
-    try {
-      const res = await fetch(`/api/vms/${hwEditVmid}/config`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cores: hwCoresEl.value,
-          memory: hwMemoryEl.value,
-          cpu: hwCpuEl.value.trim(),
-          bios: hwBiosEl.value,
-          machine: hwMachineEl.value.trim(),
-          scsihw: hwScsihwEl.value.trim(),
-          serial0: hwSerial0El.checked,
-        }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || 'save failed');
-      setHwMessage('saved');
-    } catch (err) {
-      setHwMessage(err.message, true);
-    }
-  }
-
-  hwSaveBtn.addEventListener('click', saveHwEdit);
-  hwCancelBtn.addEventListener('click', () => hwEditEl.classList.add('hidden'));
 
   window.SettingsTemplates = {
     renderTemplateRows,
-    populateTemplateValues,
-    getTemplatesPayload,
-    hideHwEdit: () => hwEditEl.classList.add('hidden'),
+    // The editor saves its own changes; the Settings form's save leaves template mappings alone.
+    populateTemplateValues: () => {},
+    getTemplatesPayload: () => undefined,
+    hideHwEdit: () => window.TemplateHw.hide(),
   };
 })();

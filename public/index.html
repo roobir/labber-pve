@@ -27,6 +27,8 @@
     </div>
   </header>
 
+  <div class="proxmox-banner hidden" id="proxmox-banner" role="status"></div>
+
   <div class="stats-bar">
     <div class="stat"><span class="stat-value" id="stat-labs">-</span><span class="stat-label">labs deployed</span></div>
     <div class="stat"><span class="stat-value" id="stat-total">-</span><span class="stat-label">total instances</span></div>
@@ -359,15 +361,13 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
                 <input id="set-upload-rate" type="number" min="0" placeholder="0 = unlimited" style="width:8rem" />
               </label>
 
-              <div class="settings-section-title">Golden template VMIDs</div>
+              <div class="settings-section-title">Golden templates</div>
               <div class="dim" style="font-size:0.75rem; margin-bottom:0.6rem;">
-                Every device kind the app knows about, and whether it has a
-                template built yet -- generated from the same list the
-                templates modal's kind picker uses, so a newly added kind
-                always shows up here automatically. "edit hw" adjusts an
-                already-built template's hardware directly -- Proxmox leaves a
-                template's non-disk config editable even after `qm template`,
-                only the disk itself becomes read-only.
+                Each device kind's template versions: the default (&#9733;) is what a
+                lab node clones unless it names a <code>version:</code>. Add a template
+                you built by hand in Proxmox, rename or remove a version (the template
+                itself stays in Proxmox), "check" that a template suits its kind, or
+                "edit hw" to adjust its hardware. Changes save immediately.
               </div>
               <div id="tpl-list"></div>
 
@@ -591,6 +591,11 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
   <script src="js/window-manager.js"></script>
   <script src="js/terminal-fit.js"></script>
   <script src="js/terminal.js"></script>
+  <script src="js/wizard-view.js"></script>
+  <script src="js/wizard-bridges.js"></script>
+  <script src="js/wizard-nodes.js"></script>
+  <script src="js/wizard-links.js"></script>
+  <script src="js/wizard-payload.js"></script>
   <script src="js/labs-wizard.js"></script>
   <script src="js/labs-stream.js"></script>
   <script src="js/labs-editor.js"></script>
@@ -600,6 +605,7 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
   <script src="js/topology-render.js"></script>
   <script src="js/topology.js"></script>
   <script src="js/settings-nav.js"></script>
+  <script src="js/settings-template-hw.js"></script>
   <script src="js/settings-templates.js"></script>
   <script src="js/settings-connection.js"></script>
   <script src="js/settings-api.js"></script>
@@ -620,6 +626,10 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
   <script src="js/store-form.js"></script>
   <script src="js/presence.js"></script>
   <script src="js/reservations-ui.js"></script>
+  <script src="js/card-util.js"></script>
+  <script src="js/card-menu.js"></script>
+  <script src="js/card-ip.js"></script>
+  <script src="js/card-identity.js"></script>
   <script src="js/dashboard-cards.js"></script>
   <script src="js/dashboard.js"></script>
 </body>

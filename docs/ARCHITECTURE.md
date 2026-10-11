@@ -61,7 +61,7 @@ Proxmox's documented API shape and has been run against a real node.
 The dashboard polls, so the cost of one poll is what matters:
 
 - **One Proxmox call per poll, shared.** `/api/status` and `/api/stats` both
-  need every node's power state. `lab-state.getAllStatuses()` asks Proxmox for
+  need every node's power state. `lab-status.getAllStatuses()` asks Proxmox for
   the whole VM list once (`GET /nodes/{node}/qemu`) and shares that answer for
   2 s between both endpoints and every open tab; starting/stopping a node or
   finishing a deploy clears it. (Before: one call per node per lab, twice per
@@ -74,3 +74,49 @@ The dashboard polls, so the cost of one poll is what matters:
 - **Run history is indexed.** The Runs tab re-reads only run files that changed.
 - **Responses are gzip-compressed** (HTML/JS/CSS/JSON).
 - **Live logs build their terminal lazily**, only when there is output to show.
+
+## Node version and TLS to appliances
+
+The image runs Node 24 (`node:24-alpine`); the code is also tested on Node 20
+(`engines: >=20`). Two things differ on 24:
+
+- **Appliance TLS.** Node 24's OpenSSL refuses a server that offers only
+  1024-bit Diffie-Hellman parameters, which some older appliance images do.
+  Node 20 accepted them. `lib/appliance-tls.js` keeps that tolerance (OpenSSL
+  security level 1) for the connections that already skip certificate checks:
+  the web rp proxy, the API relay and REST runbook steps. Proxmox connections
+  keep the strict default. Weak RSA keys, SHA-1 certificates and TLS 1.2
+  appliances work on both; TLS 1.0/1.1-only appliances fail on both.
+- **One deprecation warning.** `http-proxy` (web rp) calls `util._extend`, which
+  Node 24 warns about. The image sets `NODE_OPTIONS=--disable-warning=DEP0060`
+  to silence just that one. `http-proxy` is unmaintained; replacing it (for
+  example with its maintained fork `http-proxy-3`) is the longer-term fix.
+
+### Measured on Node 20 vs 24
+
+Same server, a lab directory of 20 labs (60 nodes), a fake Proxmox, 20
+concurrent clients: the status/stats endpoints ran about 15-18% faster on
+Node 24 (roughly 3,000 vs 2,600 req/s, p99 8 ms vs 10 ms) and a gzip'd static
+file about twice as fast; start-up time is the same (~150 ms). Under that
+synthetic load (far above real use) Node 24 holds its memory at a ~230 MB
+plateau where Node 20 gives it back (~95 MB after the load); at idle Node 24
+is lower (~80 MB vs ~98 MB). A real dashboard polls a few times a second.
+
+## Where the code lives (large features)
+
+Files are kept small by splitting along the feature's own seams:
+
+- **Deploy / destroy / update** -- `lib/lab-deploy.js` is a thin facade (per-lab
+  queue + exports) over `lib/deploy/`: `vmid.js` (id allocation), `node-ops.js`
+  (clone / remove one VM, shared by deploy, update and destroy), `bridges.js`,
+  `wiring.js` (the NIC plan deploy applies and update diffs), `reconcile-node.js`
+  (update's live-config diff), and `deploy.js` / `destroy.js` / `update.js`.
+- **Lab state** -- `lib/lab-state.js` re-exports `lab-status.js` (dashboard
+  status, one shared Proxmox call) and `lab-nodes.js` (one node's IP, identity
+  pin, GUI-proxy target).
+- **Dashboard cards** -- `public/js/dashboard-cards.js` assembles a card from
+  `card-menu.js` (dropdowns, power), `card-ip.js` (mgmt IP) and
+  `card-identity.js` (UUID/MAC), with shared helpers in `card-util.js`.
+- **New-lab wizard** -- `public/js/labs-wizard.js` opens/submits a form built by
+  `wizard-view.js` (shared elements + NIC summary), `wizard-nodes.js`,
+  `wizard-links.js`, `wizard-bridges.js` and `wizard-payload.js`.

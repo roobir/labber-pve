@@ -1,0 +1,131 @@
+title: Check Point SMS add a two-member ClusterXL HA cluster and establish SIC (console)
+vendor: checkpoint_gaia
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE. Run on the Security Management
+# Server node. Field layout follows Check Point's ClusterXL guide ("Cluster
+# Management APIs", add simple-cluster): a cluster interface carrying the
+# virtual IP, a sync interface, and each member's own IP on both.
+#
+# Before this runs, each member needs: checkpoint-set-mgmt-ip (its own
+# management IP), checkpoint-set-interface on the sync interface (its sync
+# IP), and checkpoint-first-time-config role=cluster-member with the same SIC
+# key. Put the members BEFORE the SMS in the lab file so their bootstrap runs
+# first; this waits for the API and for both members' SIC port (18211).
+# `mgmt_cli -r true` runs locally on the SMS (login, command, publish,
+# logout), so the API never has to be opened to other hosts.
+
+inputs:
+  - { id: target, type: target, kind: checkpoint_gaia, label: SMS node }
+  - { id: admin_password, type: store, storeType: secret, default: password-complex, label: Gaia admin password }
+  - { id: expert_password, type: store, storeType: secret, default: password-complex, label: Expert-mode password }
+  - { id: cluster_name, type: string, default: cluster1, label: Cluster object name }
+  - { id: cluster_ip, type: string, label: Cluster virtual IP (on the cluster interface), placeholder: 192.168.99.70 }
+  - { id: cluster_interface, type: string, default: eth0, label: Cluster interface }
+  - { id: prefix, type: number, default: 24, label: Cluster interface prefix length }
+  - { id: sync_interface, type: string, default: eth1, label: Sync interface }
+  - { id: sync_prefix, type: number, default: 24, label: Sync network prefix length }
+  - { id: member1_name, type: string, default: cp-gw1, label: Member 1 name }
+  - { id: member1_ip, type: string, label: Member 1 IP (cluster interface), placeholder: 192.168.99.71 }
+  - { id: member1_sync_ip, type: string, label: Member 1 sync IP, placeholder: 10.255.0.1 }
+  - { id: member2_name, type: string, default: cp-gw2, label: Member 2 name }
+  - { id: member2_ip, type: string, label: Member 2 IP (cluster interface), placeholder: 192.168.99.72 }
+  - { id: member2_sync_ip, type: string, label: Member 2 sync IP, placeholder: 10.255.0.2 }
+  - { id: sic_key, type: store, storeType: secret, default: checkpoint-sic, label: SIC one-time key (as given to the members) }
+  - { id: version, type: string, default: R81.20, label: Gateway version }
+  - { id: install_policy, type: select, options: ["no", "yes"], default: "no", label: Install a policy package on the cluster }
+  - { id: policy_package, type: string, default: Standard, label: Policy package }
+
+steps:
+  - id: login
+    name: Log in and enter expert mode
+    console:
+      - expect: 'login:'
+        timeout: 1200
+        nudge: 10
+        send: admin
+      - expect: 'password:'
+        send: '{{inputs.admin_password}}'
+      - expect: '>\s*$'
+        timeout: 60
+      - send: expert
+      - expect: 'password:'
+        send: '{{inputs.expert_password}}'
+      - expect: '#\s*$'
+        timeout: 30
+
+  - id: api-ready
+    name: Wait for the management API to be ready
+    console:
+      - send: >-
+          for i in $(seq 1 120); do api status 2>/dev/null | grep -qi 'readiness test successful' && break; sleep 15; done;
+          api status 2>/dev/null | grep -qi 'readiness test successful'; printf 'API-%s=%s\n' READY $?
+      - expect: 'API-READY=(\d+)'
+        as: rc
+        timeout: 1900
+      - expect: '#\s*$'
+
+  - id: api-not-ready
+    name: Stop if the API never became ready
+    when: { path: steps.api-ready.out.rc, equals: '0', not: true }
+    fail: 'the management API on this server did not become ready within 30 minutes (see `api status` on the node)'
+
+  - id: members-reachable
+    name: Wait for both members to answer on their SIC port (18211)
+    console:
+      - send: >-
+          for ip in {{inputs.member1_ip}} {{inputs.member2_ip}}; do for i in $(seq 1 240); do (echo > /dev/tcp/$ip/18211) 2>/dev/null && break; sleep 15; done; done;
+          (echo > /dev/tcp/{{inputs.member1_ip}}/18211) 2>/dev/null && (echo > /dev/tcp/{{inputs.member2_ip}}/18211) 2>/dev/null; printf 'SIC-%s=%s\n' PORTS $?
+      - expect: 'SIC-PORTS=(\d+)'
+        as: rc
+        timeout: 7300
+      - expect: '#\s*$'
+
+  - id: members-unreachable
+    name: Stop if a member never answered
+    when: { path: steps.members-reachable.out.rc, equals: '0', not: true }
+    fail: 'a member ({{inputs.member1_ip}} or {{inputs.member2_ip}}) never answered on TCP 18211 -- has its first-time configuration finished, and can this server reach it?'
+
+  - id: add
+    name: Add the cluster object and establish SIC with both members
+    console:
+      - send: >-
+          mgmt_cli -r true add simple-cluster name "{{inputs.cluster_name}}" cluster-mode "cluster-xl-ha"
+          version "{{inputs.version}}" os-name "Gaia" ip-address "{{inputs.cluster_ip}}" firewall true
+          interfaces.1.name "{{inputs.cluster_interface}}" interfaces.1.interface-type "cluster"
+          interfaces.1.ip-address "{{inputs.cluster_ip}}" interfaces.1.network-mask "{{inputs.prefix | netmask}}" interfaces.1.topology "EXTERNAL"
+          interfaces.2.name "{{inputs.sync_interface}}" interfaces.2.interface-type "sync" interfaces.2.topology "INTERNAL"
+          members.1.name "{{inputs.member1_name}}" members.1.ip-address "{{inputs.member1_ip}}" members.1.one-time-password "{{inputs.sic_key}}"
+          members.1.interfaces.1.name "{{inputs.cluster_interface}}" members.1.interfaces.1.ip-address "{{inputs.member1_ip}}" members.1.interfaces.1.network-mask "{{inputs.prefix | netmask}}"
+          members.1.interfaces.2.name "{{inputs.sync_interface}}" members.1.interfaces.2.ip-address "{{inputs.member1_sync_ip}}" members.1.interfaces.2.network-mask "{{inputs.sync_prefix | netmask}}"
+          members.2.name "{{inputs.member2_name}}" members.2.ip-address "{{inputs.member2_ip}}" members.2.one-time-password "{{inputs.sic_key}}"
+          members.2.interfaces.1.name "{{inputs.cluster_interface}}" members.2.interfaces.1.ip-address "{{inputs.member2_ip}}" members.2.interfaces.1.network-mask "{{inputs.prefix | netmask}}"
+          members.2.interfaces.2.name "{{inputs.sync_interface}}" members.2.interfaces.2.ip-address "{{inputs.member2_sync_ip}}" members.2.interfaces.2.network-mask "{{inputs.sync_prefix | netmask}}"
+          --format json; printf 'ADD-%s=%s\n' RC $?
+      - expect: 'ADD-RC=(\d+)'
+        as: rc
+        timeout: 900
+      - expect: '#\s*$'
+
+  - id: add-failed
+    name: Stop if the cluster could not be added
+    when: { path: steps.add.out.rc, equals: '0', not: true }
+    fail: 'mgmt_cli could not add {{inputs.cluster_name}} (exit code {{steps.add.out.rc}}) -- the API message is in the transcript above'
+
+  - id: install-policy
+    name: Install the policy package on the cluster
+    when: { path: inputs.install_policy, equals: "yes" }
+    console:
+      - send: >-
+          mgmt_cli -r true install-policy policy-package "{{inputs.policy_package}}" targets.1 "{{inputs.cluster_name}}" --format json;
+          printf 'POLICY-%s=%s\n' RC $?
+      - expect: 'POLICY-RC=(\d+)'
+        as: rc
+        timeout: 1200
+      - expect: '#\s*$'
+
+  - id: policy-failed
+    name: Stop if the policy install failed
+    when:
+      - { path: inputs.install_policy, equals: "yes" }
+      - { path: steps.install-policy.out.rc, equals: '0', not: true }
+    fail: 'installing {{inputs.policy_package}} on {{inputs.cluster_name}} failed (exit code {{steps.install-policy.out.rc}}) -- see the transcript above'

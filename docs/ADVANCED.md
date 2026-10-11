@@ -26,13 +26,33 @@ self-signed-cert warning the way a new-tab navigation can:
    whatever fronts it is assumed to be the real TLS termination point).
 4. Set the **GUI domain** field in Settings to that same value.
 
-Some vendor web UIs ship their own anti-clickjacking/frame-busting
-inline scripts that assume they're never embedded — `lib/gui-proxy.js`
-carries a small, narrowly-targeted set of string-replace patches for
-the specific vendors this project has actually hit that on (documented
-inline in the file itself). If a new vendor's UI shows a blank iframe,
-check its own page source for a similar `top.location`/`self != top`
-pattern before assuming it's a bug here.
+### What the proxy changes (and nothing else)
+
+The aim is that a device cannot tell it is being proxied and the browser
+never needs to reach the device itself. For every vendor:
+
+- **Host, Origin and Referer** are rewritten to the device's own address,
+  so login CSRF checks and websocket origin checks pass as they would for a
+  direct visit (requests and websocket upgrades alike).
+- **Redirects** to the device's own absolute URL become relative, so the
+  frame stays on `<lab>--<node>.<GUI domain>`. Redirects elsewhere (an SSO
+  provider) are left alone.
+- **Cookies** become `SameSite=None; Secure` (a framed page is cross-site)
+  and host-only (`Domain=` dropped), which also keeps two nodes' sessions apart.
+- **Framing headers** (`X-Frame-Options`, CSP, HSTS) are removed.
+- Connections to the device are pooled (6 per node, what a browser uses).
+- If the device can't be reached, the frame shows what to check instead of
+  a bare 502.
+
+Vendor-specific fixes live in `lib/gui-proxy/vendor-rewrites.js`: narrow,
+literal patches for the frame-busting scripts F5 BIG-IP and PAN-OS/Panorama
+ship (each documented with how it was found). If a new vendor's UI shows a
+blank frame, open the browser console inside it and look for a `top.location`
+/ `self != top` error -- that is the pattern to patch there.
+
+The window's **maximize** button fills the screen, and **pop out** opens the
+same proxied address in a normal tab (no iframe, so no frame-busting at all,
+same session).
 
 ## Remote stats API (optional, for external dashboards)
 
@@ -139,6 +159,12 @@ and turns it into a Proxmox template, entirely through the PVE API.
 
 How it works (`lib/template-builder.js`):
 
+0. Before anything is uploaded, the browser asks the server to check the
+   build can work (`lib/template-preflight.js`): file type for the device
+   kind (ISO-installed kinds need a `.iso`), version-label conflicts, a disk
+   storage that exists and accepts `import` (or `iso`) content, free space
+   there and on labber-pve's own volume, and a free VMID if you chose one.
+   Problems are shown straight away instead of after a multi-GB upload.
 1. The file is staged on the configured disk storage's `import`
    content type (`POST /nodes/{node}/storage/{storage}/upload`,
    `content=import`).
@@ -148,13 +174,41 @@ How it works (`lib/template-builder.js`):
 3. The staged image is attached as that VM's disk via
    `import-from=<storage>:import/<file>` — Proxmox itself does the
    qcow2 → target-format conversion during this step.
-4. The VM is converted to a template and its vmid is saved as that
+4. The staged upload is deleted from the storage's `import` content (the
+   template has its own copy of the disk by then; it is also deleted if
+   the build fails).
+5. The VM is converted to a template and its vmid is saved as that
    kind's template on the Settings page.
+
+Builds running at the same time never pick the same VMID, and uploads left
+on labber-pve's volume by a restart mid-build are removed at start-up. For
+an ISO-installed template, the ISO stays mounted for the whole install;
+"finalize" (only accepted once the VM is shut down) then ejects it and sets
+the VM to boot from its disk before templating, so clones never depend on
+the ISO file.
 
 Two hardware-profile fields worth knowing about beyond the obvious
 ones: `nicModel` (default `virtio`) — some appliances need `e1000`
 specifically; and `scsihw` being optional — a SATA disk bus needs no
 SCSI controller type at all.
+
+### Managing templates (Settings -> Templates)
+
+Every device kind lists its template versions (label -> Proxmox template vmid),
+the default (what a lab node clones unless it names a `version:`), and how
+many lab nodes use each. From there you can:
+
+- **add version** -- pick any template that exists in Proxmox, e.g. one you
+  built by hand after an upload or install went wrong, and optionally make it
+  the default;
+- **make default**, **rename** or **remove** a version -- only labber-pve's
+  mapping changes, the template stays in Proxmox. Removing the default is
+  refused until another version is the default, and renaming or removing a
+  version that labs use asks first;
+- **check** -- confirms the VM exists and is a template, and that its boot
+  disk bus, BIOS, machine type and serial console suit the kind;
+- **edit hw** -- cores, memory, CPU type, BIOS, machine, SCSI controller and
+  serial console of that template.
 
 ### Building from an install ISO instead of a qcow2
 
@@ -169,6 +223,10 @@ auto-templating, since finishing an interactive installer over console
 is a real manual step no upload alone can skip. Once you've completed
 the installer and shut the VM down, click **finalize as template** in
 the same modal to convert it.
+
+Check Point Gaia: shut the VM down before the First Time Configuration
+Wizard, so one template serves every role -- see "Check Point: one
+template, three roles" in [RUNBOOKS.md](RUNBOOKS.md).
 
 ### Disk storage setup (one-time, in Proxmox)
 

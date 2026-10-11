@@ -5,7 +5,7 @@
 # dependency here is plain JavaScript (no native addons), and it avoids running
 # Node under QEMU when cross-building the arm64 image, which is slow and has
 # crashed with "Illegal instruction" on CI runners.
-FROM --platform=$BUILDPLATFORM node:20-alpine AS build
+FROM --platform=$BUILDPLATFORM node:24-alpine AS build
 
 WORKDIR /app
 
@@ -28,7 +28,7 @@ RUN mkdir -p /labs/.state && \
 
 # Final image: just the files above (ownership and permissions are carried
 # over by COPY), so there is no RUN step left to emulate on another platform.
-FROM node:20-alpine
+FROM node:24-alpine
 
 WORKDIR /app
 
@@ -38,7 +38,14 @@ COPY --from=build /labs /labs
 ENV LABS_DIR=/labs
 VOLUME /labs
 
+# http-proxy (the web rp reverse proxy) still calls util._extend, which Node 24
+# deprecates (DEP0060): it works, but would print a warning on the first proxied
+# request. Silence just that one warning, not warnings in general.
+ENV NODE_OPTIONS=--disable-warning=DEP0060
+
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD wget -qO- "http://127.0.0.1:${PORT:-8080}/healthz" >/dev/null || exit 1
 
 # Respected as-is under Docker/Podman/k3s; OpenShift substitutes its own
 # random UID at deploy time regardless of this line -- the chgrp/chmod above

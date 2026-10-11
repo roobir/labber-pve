@@ -1,0 +1,33 @@
+# Check Point distributed: a Security Management Server and one Security
+# Gateway it manages, SIC established and the Standard policy installed.
+# See docs/CHECKPOINT.md. Store: password-complex, checkpoint-sic, checkpoint-admin.
+
+vars:
+  cp_install_ip: 192.168.1.1   # the IP typed during the one-time Gaia install
+  mgmt_gw: 192.168.99.1
+
+nodes:
+  cp-gw1:                      # gateways first: the SMS waits for them
+    kind: checkpoint_gaia
+    bootstrap:
+      - runbook: checkpoint-set-mgmt-ip
+        inputs: { original_ip: "{{vars.cp_install_ip}}", ip: 192.168.99.61, gateway: "{{vars.mgmt_gw}}" }
+      - runbook: checkpoint-first-time-config
+        inputs: { role: gateway, hostname: cp-gw1 }
+  cp-sms:
+    kind: checkpoint_gaia
+    bootstrap:
+      - runbook: checkpoint-set-mgmt-ip
+        inputs: { original_ip: "{{vars.cp_install_ip}}", ip: 192.168.99.60, gateway: "{{vars.mgmt_gw}}" }
+      - runbook: checkpoint-first-time-config
+        inputs: { role: sms, hostname: cp-sms }
+      - runbook: checkpoint-sms-add-gateway
+        inputs: { gateway_name: cp-gw1, gateway_ip: 192.168.99.61, install_policy: "yes" }
+
+links:
+  - name: mgmt
+    external: true
+    bridge: vmbr0
+    endpoints:
+      - { node: cp-sms, interface: net0 }
+      - { node: cp-gw1, interface: net0 }

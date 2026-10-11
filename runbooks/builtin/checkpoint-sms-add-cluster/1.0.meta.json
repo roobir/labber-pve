@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "On the SMS: wait for the API and both members, add a two-member ClusterXL HA cluster, establish SIC, optionally install policy."
+}

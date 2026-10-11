@@ -5,6 +5,7 @@ const multer = require('multer');
 const vendors = require('../lib/vendor-profiles');
 const templateBuilder = require('../lib/template-builder');
 const { throttledDiskStorage } = require('../lib/upload-throttle');
+const { preflight, sweepStaleUploads } = require('../lib/template-preflight');
 
 // Builds a golden template from an uploaded qcow2/iso. Uploaded files land
 // transiently under labsDir/.tmp/uploads (disk storage, not memory -- these
@@ -15,6 +16,7 @@ const { throttledDiskStorage } = require('../lib/upload-throttle');
 function buildTemplatesRoutes({ requireAuth, labsDir }) {
   const uploadDir = path.join(labsDir, '.tmp', 'uploads');
   fs.mkdirSync(uploadDir, { recursive: true });
+  sweepStaleUploads(uploadDir);
   const upload = multer({
     storage: throttledDiskStorage({ uploadDir }),
     limits: { fileSize: 32 * 1024 * 1024 * 1024 }, // 32GB guard rail, not an expected real size
@@ -30,6 +32,17 @@ function buildTemplatesRoutes({ requireAuth, labsDir }) {
   // polls /api/templates/build/:jobId the same way dashboard.js already
   // polls /api/status. Field name stayed "qcow2" for both file types rather
   // than renaming the route/multer config just for ISOs.
+  // Checked by the browser before it starts a (possibly multi-GB) upload --
+  // see lib/template-preflight.js.
+  router.post('/api/templates/preflight', requireAuth, async (req, res) => {
+    const b = req.body || {};
+    try {
+      res.json(await preflight({ ...b, replaceExisting: b.replaceExisting === true || b.replaceExisting === 'true', uploadDir }));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   router.post('/api/templates/build', requireAuth, upload.single('qcow2'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded (field name must be "qcow2")' });
     const cleanup = () => fs.rm(req.file.path, { force: true }, () => {});

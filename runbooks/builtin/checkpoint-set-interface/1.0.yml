@@ -1,0 +1,52 @@
+title: Check Point Gaia set an interface address (console)
+vendor: checkpoint_gaia
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE. Brings an interface up with an
+# IPv4 address over the serial console (clish, then save config). Used for a
+# cluster member's sync interface -- it must have its address in Gaia before
+# the cluster object is created on the SMS -- or any data interface.
+
+inputs:
+  - { id: target, type: target, kind: checkpoint_gaia, label: Gaia node }
+  - { id: admin_password, type: store, storeType: secret, default: password-complex, label: Admin password }
+  - { id: interface, type: string, default: eth1, label: Interface }
+  - { id: ip, type: string, label: IP address, placeholder: 10.255.0.1 }
+  - { id: prefix, type: number, default: 24, label: Prefix length }
+
+steps:
+  - id: login
+    name: Wait for the login prompt and log in
+    console:
+      - expect: 'login:'
+        timeout: 1200
+        nudge: 10
+        send: admin
+      - expect: 'password:'
+        send: '{{inputs.admin_password}}'
+      - expect: '>\s*$'
+        timeout: 60
+      - send: lock database override
+      - expect: '>\s*$'
+
+  - id: set
+    name: Set the address and bring the interface up
+    console:
+      - paste: |
+          set interface {{inputs.interface}} state on
+          set interface {{inputs.interface}} ipv4-address {{inputs.ip}} mask-length {{inputs.prefix}}
+          save config
+        failOn: 'Invalid command|Incomplete command|CLINFR0329|CLINFR0409'
+      - expect: '>\s*$'
+
+  - id: confirm
+    name: Read it back
+    console:
+      - send: show interface {{inputs.interface}} ipv4-address
+      - expect: 'ipv4-address\s+(\d+\.\d+\.\d+\.\d+)'
+        as: ip
+      - expect: '>\s*$'
+
+  - id: mismatch
+    name: Stop if the address didn't take
+    when: { path: steps.confirm.out.ip, equals: '{{inputs.ip}}', not: true }
+    fail: '{{inputs.interface}} has {{steps.confirm.out.ip}}, expected {{inputs.ip}}'

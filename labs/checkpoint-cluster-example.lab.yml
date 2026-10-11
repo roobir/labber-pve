@@ -1,0 +1,76 @@
+# Check Point from one Gaia template: a Security Management Server, a two-member
+# ClusterXL HA cluster, and one more gateway, all managed by the SMS.
+#
+# The template is Gaia installed from the ISO and shut down BEFORE the First
+# Time Configuration Wizard (see docs/RUNBOOKS.md, "Check Point"). Every clone
+# boots with the management IP typed during that install (cp_install_ip), so
+# each node's first runbook moves it to its own address over the serial
+# console. Store entries used: password-complex (Gaia admin + expert password),
+# checkpoint-sic and checkpoint-admin (letters and digits only).
+#
+# Gateways come before the SMS: bootstrap runs nodes in this order (three at a
+# time), and the SMS runbooks wait until the gateways answer on their SIC port.
+
+vars:
+  cp_install_ip: 192.168.1.1   # the IP typed during the one-time Gaia install
+  mgmt_gw: 192.168.99.1
+
+nodes:
+  cp-gw1:
+    kind: checkpoint_gaia
+    bootstrap:
+      - runbook: checkpoint-set-mgmt-ip
+        inputs: { original_ip: "{{vars.cp_install_ip}}", ip: 192.168.99.71, gateway: "{{vars.mgmt_gw}}" }
+      - runbook: checkpoint-set-interface
+        inputs: { interface: eth1, ip: 10.255.0.1 }
+      - runbook: checkpoint-first-time-config
+        inputs: { role: cluster-member, hostname: cp-gw1 }
+  cp-gw2:
+    kind: checkpoint_gaia
+    bootstrap:
+      - runbook: checkpoint-set-mgmt-ip
+        inputs: { original_ip: "{{vars.cp_install_ip}}", ip: 192.168.99.72, gateway: "{{vars.mgmt_gw}}" }
+      - runbook: checkpoint-set-interface
+        inputs: { interface: eth1, ip: 10.255.0.2 }
+      - runbook: checkpoint-first-time-config
+        inputs: { role: cluster-member, hostname: cp-gw2 }
+  cp-gw3:
+    kind: checkpoint_gaia
+    bootstrap:
+      - runbook: checkpoint-set-mgmt-ip
+        inputs: { original_ip: "{{vars.cp_install_ip}}", ip: 192.168.99.73, gateway: "{{vars.mgmt_gw}}" }
+      - runbook: checkpoint-first-time-config
+        inputs: { role: gateway, hostname: cp-gw3 }
+  cp-sms:
+    kind: checkpoint_gaia
+    bootstrap:
+      - runbook: checkpoint-set-mgmt-ip
+        inputs: { original_ip: "{{vars.cp_install_ip}}", ip: 192.168.99.60, gateway: "{{vars.mgmt_gw}}" }
+      - runbook: checkpoint-first-time-config
+        inputs: { role: sms, hostname: cp-sms }
+      - runbook: checkpoint-sms-add-cluster
+        inputs:
+          cluster_name: cp-cluster
+          cluster_ip: 192.168.99.70
+          member1_name: cp-gw1
+          member1_ip: 192.168.99.71
+          member1_sync_ip: 10.255.0.1
+          member2_name: cp-gw2
+          member2_ip: 192.168.99.72
+          member2_sync_ip: 10.255.0.2
+      - runbook: checkpoint-sms-add-gateway
+        inputs: { gateway_name: cp-gw3, gateway_ip: 192.168.99.73 }
+
+links:
+  - name: mgmt
+    external: true
+    bridge: vmbr0
+    endpoints:
+      - { node: cp-sms, interface: net0 }
+      - { node: cp-gw1, interface: net0 }
+      - { node: cp-gw2, interface: net0 }
+      - { node: cp-gw3, interface: net0 }
+  - name: sync
+    endpoints:
+      - { node: cp-gw1, interface: net1 }
+      - { node: cp-gw2, interface: net1 }

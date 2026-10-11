@@ -25,6 +25,15 @@ spec:
           ports:
             - containerPort: 8080
             - containerPort: 8081 # lib/gui-proxy.js -- embedded node-GUI reverse proxy, off (404s) until Settings' GUI domain is set
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 50m, memory: 128Mi } # ~80 MB idle, ~230 MB under heavy load on Node 24
           envFrom:
             - secretRef:
                 name: labber-pve-secrets

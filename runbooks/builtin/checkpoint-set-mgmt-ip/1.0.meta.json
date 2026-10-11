@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Move a Gaia clone off the shared install-time management IP to its own (checks the original IP first), over the serial console."
+}

@@ -3,7 +3,7 @@
 :root {
   --bg: #060606;
   --fg: #d4d4d4;
-  --dim: #6b6b6b;
+  --dim: #8a8a8a; /* ~5.9:1 on --bg, readable small text */
   --accent: #27c93f;
   --danger: #ff5f56;
   --border: #1c1c1c;
@@ -657,6 +657,10 @@ a:hover { text-decoration: underline; }
 /* ---- embedded node GUI windows ---- */
 
 .gui-window { width: min(1200px, 96vw); height: min(820px, 92vh); }
+.proxmox-banner { margin: 0.6rem 2rem 0; padding: 0.5rem 0.8rem; border: 1px solid var(--danger); color: var(--danger); font-size: 0.8rem; }
+.proxmox-banner.hidden { display: none; }
+/* !important: the window's drag position is set inline (left/top) */
+.gui-window.maximized { left: 0.5vw !important; top: 0.5vh !important; width: 99vw; height: 99vh; }
 .gui-frame { flex: 1; width: 100%; border: none; background: #fff; }
 
 /* Web-rp windows are meant to coexist (several nodes open side by side),
@@ -911,3 +915,21 @@ a:hover { text-decoration: underline; }
 .wizard-nic-line { font-size: 0.78rem; font-family: inherit; padding: 0.1rem 0; }
 .wizard-nic-line.wired { color: var(--fg); }
 .wizard-nic-line.unassigned { color: var(--dim); }
+
+/* Settings -> Templates editor */
+.tpl-kind { border: 1px solid var(--border); margin-bottom: 0.4rem; padding: 0.35rem 0.6rem; }
+.tpl-kind-head { cursor: pointer; font-size: 0.82rem; }
+.tpl-kind-name { color: var(--fg); }
+.tpl-versions { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.78rem; }
+.tpl-versions th { text-align: left; color: var(--dim); font-weight: normal; border-bottom: 1px solid var(--border); padding: 0.2rem 0.4rem; }
+.tpl-versions td { padding: 0.25rem 0.4rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.tpl-actions button { margin-right: 0.25rem; font-size: 0.72rem; }
+.tpl-default { color: var(--accent); }
+.tpl-bad, .tpl-check-error { color: var(--danger); }
+.tpl-check-warn { color: #f5a524; }
+.tpl-check-ok { color: var(--accent); }
+.tpl-check { font-size: 0.76rem; margin: 0.3rem 0; }
+.tpl-add { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; margin-top: 0.4rem; font-size: 0.78rem; }
+.tpl-add-label { width: 9rem; }
+.tpl-rename-input { width: 7rem; }
+

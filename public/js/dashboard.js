@@ -41,6 +41,19 @@
   // Proxmox node CPU/mem/disk -- separate poll from /api/status below since
   // it's a different endpoint (/api/stats, shared with /api/public/stats),
   // polled on its own, slower timer (see the bottom of this file).
+  // A banner instead of a silent wall of "unknown" node states when Proxmox
+  // can't be reached (or isn't configured yet).
+  const proxmoxBanner = document.getElementById('proxmox-banner');
+  function showProxmoxHealth(health) {
+    const down = health && health.reachable === false;
+    proxmoxBanner.classList.toggle('hidden', !down);
+    if (!down) return;
+    const since = health.since ? ` since ${new Date(health.since).toLocaleTimeString()}` : '';
+    proxmoxBanner.textContent = /not configured/i.test(health.error || '')
+      ? 'Proxmox is not configured yet -- open settings -> Connection to add it.'
+      : `Can't reach Proxmox${since}: ${health.error}. Node states below may be out of date.`;
+  }
+
   async function refreshHostStats() {
     let data;
     try {
@@ -51,6 +64,7 @@
       return; // leave last-known tiles in place
     }
 
+    showProxmoxHealth(data.proxmox);
     const host = data.host;
     if (!host) {
       statCpu.textContent = '-';

@@ -1,0 +1,77 @@
+title: Check Point Gaia change the management IP from the install-time address (console)
+vendor: checkpoint_gaia
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE. Commands from the Gaia admin guide
+# (set interface ... ipv4-address ... mask-length, set static-route default
+# nexthop gateway address ... on, save config).
+#
+# Every clone of a Gaia template boots with the management IP typed during the
+# one-time install, so several clones share it. This changes it over the
+# SERIAL console (a duplicate IP on the network doesn't matter there) -- but
+# only after checking the node really has the original IP you name, so it can
+# never re-address the wrong box. Safe to run again: a node that already has
+# the new IP is left as it is. Works before or after the first-time
+# configuration. Tip: put the install-time IP in the lab's `vars:` and pass
+# original_ip: "{{vars.cp_install_ip}}" to every Gaia node.
+
+inputs:
+  - { id: target, type: target, kind: checkpoint_gaia, label: Gaia node }
+  - { id: admin_password, type: store, storeType: secret, default: password-complex, label: Admin password (set during the install) }
+  - { id: interface, type: string, default: eth0, label: Management interface }
+  - { id: original_ip, type: string, label: "IP it has now (the install-time IP, same on every clone)", placeholder: 192.168.1.1 }
+  - { id: ip, type: string, label: New management IP, placeholder: 192.168.99.61 }
+  - { id: prefix, type: number, default: 24, label: Prefix length }
+  - { id: gateway, type: string, label: Default gateway, placeholder: 192.168.99.1 }
+
+steps:
+  - id: login
+    name: Wait for the login prompt and log in
+    console:
+      - expect: 'login:'
+        timeout: 1200
+        nudge: 10
+        send: admin
+      - expect: 'password:'
+        send: '{{inputs.admin_password}}'
+      - expect: '>\s*$'
+        timeout: 60
+      - send: lock database override
+      - expect: '>\s*$'
+
+  - id: read
+    name: Read the current management IP
+    console:
+      - send: show interface {{inputs.interface}} ipv4-address
+      - expect: 'ipv4-address\s+(\d+\.\d+\.\d+\.\d+)'
+        as: ip
+      - expect: '>\s*$'
+
+  - id: change
+    name: Change it to the new address (only if it has the original IP)
+    when: { path: steps.read.out.ip, equals: '{{inputs.original_ip}}' }
+    console:
+      - paste: |
+          set interface {{inputs.interface}} ipv4-address {{inputs.ip}} mask-length {{inputs.prefix}}
+          set static-route default off
+          set static-route default nexthop gateway address {{inputs.gateway}} on
+          save config
+        failOn: 'Invalid command|Incomplete command|CLINFR0329|CLINFR0409'
+      - expect: '>\s*$'
+
+  - id: confirm
+    name: Read it back
+    console:
+      - send: show interface {{inputs.interface}} ipv4-address
+      - expect: 'ipv4-address\s+(\d+\.\d+\.\d+\.\d+)'
+        as: ip
+      - expect: '>\s*$'
+
+  - id: wrong-node
+    name: Stop if the node had neither the original nor the new IP
+    when: { path: steps.confirm.out.ip, equals: '{{inputs.ip}}', not: true }
+    fail: 'the node has {{steps.confirm.out.ip}} (it had {{steps.read.out.ip}}); expected the original {{inputs.original_ip}} to become {{inputs.ip}}. If it had a different IP, nothing was changed -- wrong node or wrong original_ip?'
+
+  - id: update-lab
+    name: Save the IP on the node in labber-pve
+    lab:
+      setMgmtIp: { ip: '{{inputs.ip}}', port: 443 }

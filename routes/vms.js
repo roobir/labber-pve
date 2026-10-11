@@ -59,18 +59,20 @@ function buildVmsRoutes({ requireAuth }) {
     if (!Number.isInteger(memory) || memory <= 0) return res.status(400).json({ error: 'memory (MB) must be a positive integer' });
     if (!cpu) return res.status(400).json({ error: 'cpu type is required' });
     if (bios !== 'seabios' && bios !== 'ovmf') return res.status(400).json({ error: 'bios must be seabios or ovmf' });
-    if (!scsihw) return res.status(400).json({ error: 'scsihw is required' });
 
-    // machine/serial0 are the two fields that can go from "set" to "absent"
+    // machine/serial0/scsihw are the fields that can go from "set" to "absent"
     // -- Proxmox's config PUT needs those cleared via `delete`, not by
     // omitting them from the params (omitting just leaves the old value in
     // place). Deleting a key that isn't currently set is a harmless no-op,
     // so this doesn't need to check whether it was previously present
     // first.
     const toDelete = [];
-    const params = { cores, memory, cpu, bios, scsihw };
+    const params = { cores, memory, cpu, bios };
     if (machine) params.machine = machine;
     else toDelete.push('machine');
+    // Optional: a SATA-bus kind (cisco_n9kv) has no SCSI controller at all.
+    if (scsihw) params.scsihw = scsihw;
+    else toDelete.push('scsihw');
     if (req.body.serial0) params.serial0 = 'socket';
     else toDelete.push('serial0');
     if (toDelete.length) params.delete = toDelete.join(',');
