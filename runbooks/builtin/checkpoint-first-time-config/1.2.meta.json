@@ -1,0 +1,6 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Turn an installed-but-unconfigured Gaia clone into a gateway, cluster member, standalone (gateway + management) or Security Management Server (config_system, dry-run first).",
+  "changelog": "Waits up to 5 minutes (was 30s) for the expert-mode prompt; a fresh R81.20 clone took longer than 30s to enter expert mode. save config may take up to 3 minutes."
+}

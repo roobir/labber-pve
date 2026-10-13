@@ -1,0 +1,6 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Build a sync-failover HA pair from two standalone BIG-IPs: device names, HA addresses, device trust, device group, initial sync, ACTIVE/STANDBY check.",
+  "changelog": "Find this device's cm name with `list cm device one-line` + grep self-device true; 1.0's `list cm device one-line self-device` is a syntax error on BIG-IP 17.5."
+}

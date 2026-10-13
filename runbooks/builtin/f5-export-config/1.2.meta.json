@@ -1,0 +1,6 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Save an F5's configuration, strip the device-specific settings, and store it under a name you choose, ready for f5-load-config. Optionally saves the master key so encrypted values round-trip.",
+  "changelog": "Cluster-settings notes work on BIG-IP 17.5 (full one-line listings parsed instead of property selection, which 17.5 rejects); F5's own device groups not listed."
+}

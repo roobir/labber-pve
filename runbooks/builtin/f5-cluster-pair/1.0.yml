@@ -1,0 +1,266 @@
+title: F5 BIG-IP build an HA pair (device trust + sync-failover group) (REST)
+vendor: f5_bigip_ve
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE.
+# Turns two standalone BIG-IPs into a sync-failover pair -- e.g. after both
+# nodes of a rebuilt cluster got their own config back with f5-load-config
+# (exported with profile same-node). Run it on ONE node (the "target"); the
+# other is the "peer". The target's configuration is the one synced to the
+# group.
+#
+# Steps follow F5's CLI order for a pair: on each device rename the `cm
+# device` from its install-time name (bigip1) to the hostname and reset its
+# trust certificates, set the config-sync / failover (unicast) / mirroring
+# addresses; then on the target add the peer to the trust domain, create the
+# sync-failover device group, and sync. F5 then puts the root and /Common
+# folders into the group by itself. It finishes when the pair reports "In
+# Sync" and one node is ACTIVE, the other STANDBY.
+#
+# Before this runs, each node needs: a hostname of its own (different on the
+# two nodes -- a same-node config carries it), and the HA self IP given below
+# (on a VLAN both nodes share, with port lockdown allowing at least the
+# defaults: TCP 4353 for config sync, UDP 1026 for failover). The same
+# admin user must work on both nodes. In a lab file, run this LAST on the
+# target node with `waitFor: <peer node>` so the peer is ready first, and
+# give the peer as its node name: `inputs: { peer: f5-2, ... }`.
+#
+# Safe to run again: a device already named after its hostname keeps its
+# trust; a peer already in the trust domain and an existing device group are
+# left as they are; the sync and checks run again.
+
+inputs:
+  - { id: target, type: target, kind: f5_bigip_ve, label: "F5 node that builds the pair (its config is synced)" }
+  - { id: peer, type: target, kind: f5_bigip_ve, label: Peer F5 node }
+  - { id: admin_user, type: string, default: admin, label: Admin user (both nodes) }
+  - { id: admin_password, type: store, storeType: secret, default: password-simple, label: Admin password (both nodes) }
+  - { id: ha_ip, type: string, label: "This node's HA self IP (config sync + failover)", placeholder: 10.1.30.11 }
+  - { id: peer_ha_ip, type: string, label: "Peer's HA self IP", placeholder: 10.1.30.12 }
+  - { id: mirroring, type: select, options: ["yes", "no"], default: "yes", label: Connection mirroring over the HA IPs }
+  - { id: device_group, type: string, default: failover-dg, label: Device group name }
+  - { id: auto_sync, type: select, options: [disabled, enabled], default: disabled, label: Automatic sync }
+  - { id: network_failover, type: select, options: [enabled, disabled], default: enabled, label: Network failover }
+  - { id: asm_sync, type: select, options: [disabled, enabled], default: disabled, label: "ASM sync (only with ASM provisioned)" }
+
+steps:
+  - id: ready-target
+    name: Wait for this node to be active
+    http: &ready
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh show sys mcp-state field-fmt | grep -q "phase *running" && printf "MCP-%s\n" READY'
+      poll: { every: 10, timeout: 900, initialDelay: 1, until: { status: 200, match: "MCP-READY" } }
+
+  - id: ready-peer
+    name: Wait for the peer to be active
+    target: peer
+    http: *ready
+
+  - id: name-target
+    name: Read this node's hostname
+    http: &hostname
+      method: GET
+      path: /mgmt/tm/sys/global-settings
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      expect: 200
+      extract: { host: { json: hostname } }
+
+  - id: name-peer
+    name: Read the peer's hostname
+    target: peer
+    http: *hostname
+
+  - id: mgmt-peer
+    name: Read the peer's management address
+    target: peer
+    http:
+      method: GET
+      path: /mgmt/tm/sys/management-ip
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      expect: 200
+      extract: { ip: { regex: '"name":"(\d+\.\d+\.\d+\.\d+)/' } }
+
+  - id: same-hostname
+    name: Stop if both nodes have the same hostname
+    when: { path: steps.name-peer.out.host, equals: "{{steps.name-target.out.host}}" }
+    fail: "both nodes are called {{steps.name-target.out.host}} -- device trust needs a different hostname on each (load each node's own same-node config, or set sys global-settings hostname)"
+
+  - id: prepare-target
+    name: Name this device after its hostname and set its HA addresses
+    http: &prepare
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        # `cm device` keeps its install-time name (bigip1) until renamed; F5's
+        # CLI guide renames it, then resets the trust certificates so they are
+        # issued for the new name. Only a device that still needs the rename
+        # gets its trust reset, so a second run never breaks a built pair.
+        utilCmdArgs: >-
+          -c 'h="{{steps.name-target.out.host}}"; ip="{{inputs.ha_ip}}"; m=any6; [ "{{inputs.mirroring}}" = yes ] && m="$ip";
+          self=$(tmsh list cm device one-line self-device | grep "self-device true" | cut -d" " -f3);
+          [ -n "$self" ] || { echo "could not find this device in cm device"; printf "PREP-%s\n" FAILED; exit 0; };
+          if [ "$self" != "$h" ]; then tmsh mv cm device "$self" "$h" && tmsh delete cm trust-domain all || { printf "PREP-%s\n" FAILED; exit 0; }; echo "renamed cm device $self to $h"; fi;
+          tmsh modify cm device "$h" configsync-ip "$ip" mirror-ip "$m" unicast-address { { ip "$ip" } }
+          && tmsh save sys config > /dev/null && printf "PREP-%s\n" OK || printf "PREP-%s\n" FAILED'
+      expect: { status: 200, match: "PREP-OK", message: "could not set this device's name / HA addresses -- is the HA self IP configured on it?" }
+      timeout: 300
+
+  - id: prepare-peer
+    name: Name the peer after its hostname and set its HA addresses
+    target: peer
+    http:
+      <<: *prepare
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'h="{{steps.name-peer.out.host}}"; ip="{{inputs.peer_ha_ip}}"; m=any6; [ "{{inputs.mirroring}}" = yes ] && m="$ip";
+          self=$(tmsh list cm device one-line self-device | grep "self-device true" | cut -d" " -f3);
+          [ -n "$self" ] || { echo "could not find this device in cm device"; printf "PREP-%s\n" FAILED; exit 0; };
+          if [ "$self" != "$h" ]; then tmsh mv cm device "$self" "$h" && tmsh delete cm trust-domain all || { printf "PREP-%s\n" FAILED; exit 0; }; echo "renamed cm device $self to $h"; fi;
+          tmsh modify cm device "$h" configsync-ip "$ip" mirror-ip "$m" unicast-address { { ip "$ip" } }
+          && tmsh save sys config > /dev/null && printf "PREP-%s\n" OK || printf "PREP-%s\n" FAILED'
+      expect: { status: 200, match: "PREP-OK", message: "could not set the peer's name / HA addresses -- is the HA self IP configured on it?" }
+
+  - id: settle-target
+    name: Let this node settle after the rename
+    http: *ready
+
+  - id: settle-peer
+    name: Let the peer settle after the rename
+    target: peer
+    http: *ready
+
+  - id: trust-check
+    name: Is the peer already in this node's trust domain?
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'if tmsh list cm device "{{steps.name-peer.out.host}}" > /dev/null 2>&1; then printf "TRUST-%s\n" YES; else printf "TRUST-%s\n" NO; fi'
+      expect: { status: 200, match: "TRUST-(YES|NO)" }
+      extract: { state: { regex: "TRUST-(YES|NO)" } }
+
+  - id: trust-add
+    name: Add the peer to the trust domain
+    when: { path: steps.trust-check.out.state, equals: "NO" }
+    http:
+      method: POST
+      path: /mgmt/tm/cm/add-to-trust
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        name: Root
+        caDevice: true
+        device: "{{steps.mgmt-peer.out.ip}}"
+        deviceName: "{{steps.name-peer.out.host}}"
+        username: "{{inputs.admin_user}}"
+        password: "{{inputs.admin_password}}"
+      expect: { status: 200, message: "F5 would not add the peer to the trust domain -- can this node reach the peer's management address on 443, and is the password right?" }
+      timeout: 180
+
+  - id: trust-wait
+    name: Wait until the peer shows up as a trusted device
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh list cm device "{{steps.name-peer.out.host}}" > /dev/null 2>&1 && printf "TRUST-%s\n" READY'
+      poll: { every: 5, timeout: 300, initialDelay: 2, until: { status: 200, match: "TRUST-READY" } }
+
+  - id: group
+    name: Create the sync-failover device group
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'g="{{inputs.device_group}}"; x=""; [ "{{inputs.asm_sync}}" = enabled ] && x="asm-sync enabled";
+          if tmsh list cm device-group "$g" > /dev/null 2>&1; then echo "device group $g already exists"; printf "GROUP-%s\n" OK;
+          else tmsh create cm device-group "$g" type sync-failover devices add { "{{steps.name-target.out.host}}" "{{steps.name-peer.out.host}}" }
+          auto-sync {{inputs.auto_sync}} network-failover {{inputs.network_failover}} $x > /var/tmp/labber-dg.out 2>&1
+          && tmsh save sys config >> /var/tmp/labber-dg.out 2>&1 && printf "GROUP-%s\n" OK
+          || { cat /var/tmp/labber-dg.out; printf "GROUP-%s\n" FAILED; }; rm -f /var/tmp/labber-dg.out; fi'
+      expect: { status: 200, match: "GROUP-OK", message: "F5 would not create the device group" }
+      timeout: 180
+
+  - id: sync
+    name: Sync this node's configuration to the group
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        # F5 creates datasync-global-dg by itself (ASM); it is manual-sync
+        # only, so it is synced here too or the pair never reads "In Sync".
+        utilCmdArgs: >-
+          -c 'sleep 5; tmsh run cm config-sync to-group "{{inputs.device_group}}" > /var/tmp/labber-sync.out 2>&1
+          && { ! tmsh list cm device-group datasync-global-dg > /dev/null 2>&1 || tmsh run cm config-sync to-group datasync-global-dg >> /var/tmp/labber-sync.out 2>&1; }
+          && printf "SYNC-%s\n" STARTED || { cat /var/tmp/labber-sync.out; printf "SYNC-%s\n" FAILED; }; rm -f /var/tmp/labber-sync.out'
+      expect: { status: 200, match: "SYNC-STARTED", message: "F5 would not start the config sync" }
+      timeout: 180
+
+  - id: in-sync
+    name: Wait until the pair is In Sync
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh show cm sync-status field-fmt | grep -q "^ *status In Sync" && printf "SYNC-%s\n" DONE
+          || tmsh show cm sync-status field-fmt | grep -E "^ *(status|summary|details)"'
+      poll: { every: 10, timeout: 600, initialDelay: 10, until: { status: 200, match: "SYNC-DONE" } }
+
+  - id: failover-target
+    name: Read this node's failover state
+    http: &failover
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'printf "FAILOVER-%s\n" "$(tmsh show cm failover-status field-fmt | grep -m1 "^ *status " | sed "s/^ *status //")"'
+      poll: { every: 10, timeout: 300, initialDelay: 1, until: { status: 200, match: "FAILOVER-(ACTIVE|STANDBY)" } }
+      extract: { state: { regex: "FAILOVER-(ACTIVE|STANDBY)" } }
+
+  - id: failover-peer
+    name: Wait for the peer to take the other role (ACTIVE / STANDBY)
+    target: peer
+    http:
+      <<: *failover
+      poll: { every: 10, timeout: 300, initialDelay: 1, until: { status: 200, match: "FAILOVER-(?!{{steps.failover-target.out.state}}\\b)(ACTIVE|STANDBY)" } }
+      expect: { message: "the peer never took the other role -- network failover is not working (HA VLAN, self IP port lockdown, unicast addresses)" }
+
+  - id: save-both
+    name: Save the configuration on both nodes
+    http: &save
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh save sys config > /dev/null 2>&1 && printf "SAVE-%s\n" OK'
+      expect: { status: 200, match: "SAVE-OK" }
+      timeout: 180
+
+  - id: save-peer
+    name: Save the configuration on the peer
+    target: peer
+    http: *save

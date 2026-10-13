@@ -1,0 +1,6 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Load a stored F5 configuration (SCF) onto a node: upload in parts, tidy, verify, merge or replace, save.",
+  "changelog": "Tidy also drops ASM cluster-only objects (asm device-sync, <group>_asm_sync and datasync-device-* folders) found in a real 17.5 HA export with ASM sync."
+}

@@ -1,0 +1,116 @@
+title: Check Point SMS add a Security Gateway and establish SIC (console)
+vendor: checkpoint_gaia
+
+# 1.1 -- waits up to 5 minutes (was 30 seconds) for the expert-mode prompt
+# after the expert password. On a real, fresh R81.20 clone the `expert`
+# login took longer than 30s: the run gave up with no output, yet the node
+# was found in expert mode afterwards (the password had been accepted).
+#
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE. Run on the Security Management
+# Server node (after checkpoint-first-time-config role=sms). Uses the
+# management API locally over the serial console: `mgmt_cli -r true` logs in
+# as root, runs the command, publishes and logs out -- the API never has to be
+# opened to other hosts.
+#
+# Waits until the management API is ready (`api status`) and until the gateway
+# answers on its SIC port (TCP 18211, i.e. its own first-time configuration has
+# finished), then `add simple-gateway` with the SIC one-time key, which also
+# establishes SIC. Optionally installs a policy package on it. Put the gateway
+# nodes BEFORE the SMS in the lab file so their bootstrap runs first.
+
+inputs:
+  - { id: target, type: target, kind: checkpoint_gaia, label: SMS node }
+  - { id: admin_password, type: store, storeType: secret, default: password-complex, label: Gaia admin password }
+  - { id: expert_password, type: store, storeType: secret, default: password-complex, label: Expert-mode password }
+  - { id: gateway_name, type: string, label: Gateway object name, placeholder: cp-gw1 }
+  - { id: gateway_ip, type: string, label: Gateway management IP, placeholder: 192.168.99.61 }
+  - { id: sic_key, type: store, storeType: secret, default: checkpoint-sic, label: SIC one-time key (as given to the gateway) }
+  - { id: version, type: string, default: R81.20, label: Gateway version }
+  - { id: install_policy, type: select, options: ["no", "yes"], default: "no", label: Install a policy package on it }
+  - { id: policy_package, type: string, default: Standard, label: Policy package }
+
+steps:
+  - id: login
+    name: Log in and enter expert mode
+    console:
+      - expect: 'login:'
+        timeout: 1200
+        nudge: 10
+        send: admin
+      - expect: 'password:'
+        send: '{{inputs.admin_password}}'
+      - expect: '>\s*$'
+        timeout: 60
+      - send: expert
+      - expect: 'password:'
+        send: '{{inputs.expert_password}}'
+      - expect: '#\s*$'
+        timeout: 300
+
+  - id: api-ready
+    name: Wait for the management API to be ready
+    console:
+      - send: >-
+          for i in $(seq 1 120); do api status 2>/dev/null | grep -qi 'readiness test successful' && break; sleep 15; done;
+          api status 2>/dev/null | grep -qi 'readiness test successful'; printf 'API-%s=%s\n' READY $?
+      - expect: 'API-READY=(\d+)'
+        as: rc
+        timeout: 1900
+      - expect: '#\s*$'
+
+  - id: api-not-ready
+    name: Stop if the API never became ready
+    when: { path: steps.api-ready.out.rc, equals: '0', not: true }
+    fail: 'the management API on this server did not become ready within 30 minutes (see `api status` on the node)'
+
+  - id: gateway-reachable
+    name: Wait for the gateway to answer on its SIC port (18211)
+    console:
+      - send: >-
+          for i in $(seq 1 240); do (echo > /dev/tcp/{{inputs.gateway_ip}}/18211) 2>/dev/null && break; sleep 15; done;
+          (echo > /dev/tcp/{{inputs.gateway_ip}}/18211) 2>/dev/null; printf 'SIC-%s=%s\n' PORT $?
+      - expect: 'SIC-PORT=(\d+)'
+        as: rc
+        timeout: 3700
+      - expect: '#\s*$'
+
+  - id: gateway-unreachable
+    name: Stop if the gateway never answered
+    when: { path: steps.gateway-reachable.out.rc, equals: '0', not: true }
+    fail: '{{inputs.gateway_name}} ({{inputs.gateway_ip}}) never answered on TCP 18211 -- has its first-time configuration finished, and can this server reach it?'
+
+  - id: add
+    name: Add the gateway object and establish SIC
+    console:
+      - send: >-
+          mgmt_cli -r true add simple-gateway name "{{inputs.gateway_name}}" ipv4-address "{{inputs.gateway_ip}}"
+          one-time-password "{{inputs.sic_key}}" version "{{inputs.version}}" os-name "Gaia" firewall true --format json;
+          printf 'ADD-%s=%s\n' RC $?
+      - expect: 'ADD-RC=(\d+)'
+        as: rc
+        timeout: 600
+      - expect: '#\s*$'
+
+  - id: add-failed
+    name: Stop if the gateway could not be added
+    when: { path: steps.add.out.rc, equals: '0', not: true }
+    fail: 'mgmt_cli could not add {{inputs.gateway_name}} (exit code {{steps.add.out.rc}}) -- the API message is in the transcript above'
+
+  - id: install-policy
+    name: Install the policy package on the gateway
+    when: { path: inputs.install_policy, equals: "yes" }
+    console:
+      - send: >-
+          mgmt_cli -r true install-policy policy-package "{{inputs.policy_package}}" targets.1 "{{inputs.gateway_name}}" --format json;
+          printf 'POLICY-%s=%s\n' RC $?
+      - expect: 'POLICY-RC=(\d+)'
+        as: rc
+        timeout: 1200
+      - expect: '#\s*$'
+
+  - id: policy-failed
+    name: Stop if the policy install failed
+    when:
+      - { path: inputs.install_policy, equals: "yes" }
+      - { path: steps.install-policy.out.rc, equals: '0', not: true }
+    fail: 'installing {{inputs.policy_package}} on {{inputs.gateway_name}} failed (exit code {{steps.install-policy.out.rc}}) -- see the transcript above'

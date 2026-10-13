@@ -1,0 +1,6 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "On the SMS: wait for the API and both members, add a two-member ClusterXL HA cluster, establish SIC, optionally install policy.",
+  "changelog": "Presses Enter every 5s while waiting for the expert prompt: a real R81.20 clone loses the Enter sent with the expert password and waits for another (confirmed by hand)."
+}

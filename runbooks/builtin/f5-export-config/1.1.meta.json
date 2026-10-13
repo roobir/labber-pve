@@ -1,0 +1,6 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Save an F5's configuration, strip the device-specific settings, and store it under a name you choose, ready for f5-load-config. Optionally saves the master key so encrypted values round-trip.",
+  "changelog": "Cluster members export cleanly (folder device-group / custom traffic-group lines removed, datasync-global objects left out); optional master-key capture to a secret Store entry (<name>-master-key); source cluster settings recorded as comments."
+}

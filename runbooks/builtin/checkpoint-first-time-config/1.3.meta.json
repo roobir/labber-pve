@@ -1,0 +1,6 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Turn an installed-but-unconfigured Gaia clone into a gateway, cluster member, standalone (gateway + management) or Security Management Server (config_system, dry-run first).",
+  "changelog": "Presses Enter every 5s while waiting for the expert prompt: a real R81.20 clone loses the Enter sent with the expert password and waits for another (confirmed by hand)."
+}

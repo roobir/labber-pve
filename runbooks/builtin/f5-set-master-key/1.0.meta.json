@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Give a fresh BIG-IP the master key saved by f5-export-config, so a config from that device (or its cluster) loads with its encrypted values. Run before f5-provision-modules."
+}

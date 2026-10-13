@@ -29,6 +29,14 @@ and gives five ready-to-copy labs.
       checkpoint-sms-add-cluster     cluster object + SIC (+ policy)
 ```
 
+`checkpoint-first-time-config` **1.1** replaces 1.0, which hung on a real
+R81.20 clone at `set expert-password` (no "(again)" prompt after the first
+password). 1.1 sets the expert password with one command,
+`set expert-password-hash` (a salted SHA-512 hash made by labber-pve, masked
+in logs), then `save config` -- which 1.0 also lacked, so the password would
+not have survived the final reboot. If your 1.0 copy is locked, pin
+`version: "1.1"` in the lab file (or lock 1.1).
+
 ## Before the first lab
 
 1. **Template.** Templates window -> kind *Check Point Gaia* -> upload the Gaia

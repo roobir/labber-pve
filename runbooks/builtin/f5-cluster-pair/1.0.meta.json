@@ -1,0 +1,5 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Build a sync-failover HA pair from two standalone BIG-IPs: device names, HA addresses, device trust, device group, initial sync, ACTIVE/STANDBY check."
+}

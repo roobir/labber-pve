@@ -1,0 +1,99 @@
+title: F5 BIG-IP set the master key (REST)
+vendor: f5_bigip_ve
+
+# DRAFT -- NOT YET VERIFIED ON A REAL CLONE.
+# Gives a fresh BIG-IP the master key of another one (saved by
+# f5-export-config as <entry>-master-key), so a configuration from that device
+# loads WITH its encrypted values: monitor passwords, key passphrases, ASM
+# bot-signature data. Cluster members share one master key, so the same entry
+# serves both nodes of a rebuilt pair.
+#
+# Uses F5's documented method: `f5mku -K` shows a key, `f5mku -r <key>`
+# installs one ("Copy a master key to a new system", BIG-IP Secure Vault
+# guide). F5's caution: if the configuration ALREADY holds encrypted values,
+# changing the key makes later config loads fail -- so run this on a fresh
+# node, after f5-install-license and BEFORE f5-provision-modules (provisioning
+# ASM creates encrypted bot-signature data) and before f5-load-config.
+#
+# Safety: it saves the config and looks for encrypted values ($M$...) first,
+# and refuses to change the key if it finds any, unless "Change it anyway" is
+# yes. A node that already has this key is left alone (safe to run again).
+# After the change it saves, reloads the configuration to prove it still
+# loads, and checks the key reads back the same.
+
+inputs:
+  - { id: target, type: target, kind: f5_bigip_ve, label: F5 node }
+  - { id: admin_user, type: string, default: admin, label: Admin user }
+  - { id: admin_password, type: store, storeType: secret, default: password-simple, label: Admin password }
+  - { id: master_key, type: store, storeType: secret, default: f5-base-config-01-master-key, label: "Master key (Store secret saved by f5-export-config)" }
+  - { id: force, type: select, options: ["no", "yes"], default: "no", label: "Change it anyway if the config already holds encrypted values (they will no longer load)" }
+
+steps:
+  - id: wait-ready
+    name: Wait for the system to be active
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh show sys mcp-state field-fmt | grep -q "phase *running" && printf "MCP-%s\n" READY'
+      poll: { every: 10, timeout: 900, initialDelay: 5, until: { status: 200, match: "MCP-READY" } }
+
+  - id: check
+    name: Compare the key and look for encrypted values
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'if [ "$(f5mku -K 2>/dev/null)" = "{{inputs.master_key}}" ]; then printf "MK-%s\n" SAME;
+          else tmsh save sys config > /dev/null 2>&1;
+          f=$(grep -lsF "\$M\$" /config/bigip.conf /config/bigip_base.conf /config/partitions/*/bigip*.conf | tr "\n" " ");
+          if [ -n "$f" ]; then printf "encrypted values in: %s\n" "$f"; printf "MK-%s\n" ENCRYPTED; else printf "MK-%s\n" CLEAR; fi; fi'
+      expect: { status: 200, match: "MK-(SAME|ENCRYPTED|CLEAR)" }
+      extract: { state: { regex: "MK-(SAME|ENCRYPTED|CLEAR)" } }
+      timeout: 180
+
+  - id: refuse
+    name: Stop if the configuration already holds encrypted values
+    when:
+      - { path: steps.check.out.state, equals: ENCRYPTED }
+      - { path: inputs.force, equals: "yes", not: true }
+    fail: "this F5's configuration already holds encrypted values (encrypted with its current key), so changing the master key now would stop its config from loading. Run f5-set-master-key on a fresh node, before f5-provision-modules and f5-load-config -- or set \"Change it anyway\" to yes if you accept losing those values."
+
+  - id: set
+    name: Install the master key, save, and prove the config still loads
+    when: { path: steps.check.out.state, equals: SAME, not: true }
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'f5mku -r "{{inputs.master_key}}" > /var/tmp/labber-mk.out 2>&1
+          && [ "$(f5mku -K 2>/dev/null)" = "{{inputs.master_key}}" ]
+          && tmsh save sys config >> /var/tmp/labber-mk.out 2>&1
+          && tmsh load sys config >> /var/tmp/labber-mk.out 2>&1
+          && printf "MK-%s\n" INSTALLED
+          || { cat /var/tmp/labber-mk.out; printf "MK-%s\n" FAILED; };
+          rm -f /var/tmp/labber-mk.out'
+      expect: { status: 200, match: "MK-INSTALLED", message: "F5 did not take the master key, or its config did not reload afterwards" }
+      timeout: 600
+
+  - id: settle
+    name: Wait for the system to be active again
+    when: { path: steps.check.out.state, equals: SAME, not: true }
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh show sys mcp-state field-fmt | grep -q "phase *running" && printf "MCP-%s\n" READY'
+      poll: { every: 10, timeout: 900, initialDelay: 10, until: { status: 200, match: "MCP-READY" } }

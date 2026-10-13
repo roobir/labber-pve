@@ -1,0 +1,6 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Build a sync-failover HA pair from two standalone BIG-IPs: device names, HA addresses, device trust, device group, initial sync, In Sync on both nodes, ACTIVE/STANDBY check.",
+  "changelog": "Device trust made robust after two real 17.5 failures: add-to-trust retried while devmgmtd is restarting (iControl session error); trust reset on both nodes before adding (a failed attempt can leave the peer half-joined: Device is already part of a trust-domain), add confirmed by reading the device list, one more reset + attempt if not."
+}

@@ -1,0 +1,6 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Build a sync-failover HA pair from two standalone BIG-IPs: device names, HA addresses, device trust, device group, initial sync, ACTIVE/STANDBY check.",
+  "changelog": "Ends with an In Sync check on this node, the peer, then this node again (each node reports its own view): re-syncs datasync-global-dg or the device group from the node that sees it drift, passes on two In Sync polls in a row. Seen on a real 17.5 pair with ASM: node1 In Sync, node2 Changes Pending."
+}

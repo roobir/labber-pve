@@ -30,6 +30,7 @@ Use values anywhere in a step:
   {{steps.stepid.out.name}}    something an earlier step captured
   {{... | b64}} {{... | url}}  encode a value (base64 / URL)
   {{inputs.prefix | netmask}}  24 -> 255.255.255.0
+  {{inputs.pw | sha512crypt}}  salted $6$ password hash (masked in logs)
 
 Every step has an id, an optional name, and ONE of:
 

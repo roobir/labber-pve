@@ -1,0 +1,188 @@
+title: F5 BIG-IP export the configuration to the Store (REST)
+vendor: f5_bigip_ve
+
+# 1.1 -- changes from 1.0:
+#   * cluster members export cleanly: device-group references and custom
+#     traffic-group references inside `sys folder` stanzas are removed (the
+#     device groups themselves live under `cm`, which is never exported, so a
+#     target refused them); F5's own `datasync-global` folder / device-group
+#     objects are left out. No more `also_remove: sys folder|...`.
+#     f5-cluster-pair puts the folders back in the device group: F5 assigns
+#     a new sync-failover group to the root and /Common folders by itself.
+#   * "Save the master key" (default yes): the device's master key is saved
+#     as a SECRET Store entry named <entry name>-master-key. Run
+#     f5-set-master-key with it on a fresh node (before provisioning ASM) and
+#     the encrypted values -- monitor passwords, key passphrases, ASM bot
+#     signatures -- load as they are, so "Leave out objects holding encrypted
+#     values" can be set to no and nothing is lost.
+#   * the cluster settings of the source (device names, config-sync /
+#     failover / mirror addresses, device groups) are written as comments at
+#     the end of the stored text, as a record of what to give f5-cluster-pair.
+#
+# Saves the F5's running configuration as a single configuration file (SCF),
+# removes the settings that belong to one particular device, and stores the
+# result as a `text` entry in the Store, ready for f5-load-config.
+#
+# Two profiles decide what is left OUT of the stored config (any top-level
+# stanza whose first line starts with one of the listed prefixes):
+#
+#   other-node  (default) a config to load onto ANOTHER node: leaves out
+#               management IP + route, global settings (hostname), device
+#               trust (cm), local users + password policy, self IPs,
+#               provisioning, license, and the certificate / key FILE entries.
+#   same-node   a config to put back on a REBUILT copy of THIS node (one
+#               cluster member -> its own rebuilt copy): keeps the hostname,
+#               local users, self IPs (floating ones too) and provisioning;
+#               still leaves out the management IP + route, license, device
+#               trust (cm) and certificate / key files.
+#
+# Both profiles also leave out F5's datasync-global objects (rebuilt by F5
+# itself) and strip device-group / custom traffic-group lines from folders.
+#
+# Encrypted values: passwords, passphrases and some factory data (for example
+# the bot signatures' `factory_rule`) are stored encrypted with THIS device's
+# master key. A target F5 with a different master key cannot decrypt them and
+# rejects the whole load ("01071769 ... encrypted with a different master
+# key"). Two ways out:
+#   a) keep them: save the master key here, run f5-set-master-key on the
+#      target BEFORE f5-provision-modules, export with "Leave out ..." = no;
+#   b) leave them out ("Leave out ..." = yes, the default): every object that
+#      holds one is dropped and listed at the end of the stored config.
+# Cluster members share one master key, so one saved key serves both.
+#
+# Files: an object with a `cache-path` line (certificates, keys, iFiles,
+# external data groups, F5's auto-update data) points at a file in the source
+# device's file store. The SCF does not contain the file, so every such
+# object is left out, by what it is rather than by its name, and listed at
+# the end of the stored text.
+#
+# Not captured by an SCF: ASM security policies (export those separately),
+# SSL certificates and keys, the license, device trust.
+#
+# Safety: an existing Store entry is only replaced if "Replace" is yes, and
+# the Store keeps its previous value in history. The file stays on the F5
+# only for the length of the run.
+
+inputs:
+  - { id: target, type: target, kind: f5_bigip_ve, label: F5 node }
+  - { id: admin_user, type: string, default: admin, label: Admin user }
+  - { id: admin_password, type: store, storeType: secret, default: password-simple, label: Admin password }
+  - { id: entry_name, type: string, default: f5-base-config-01, label: Store entry name to save as }
+  - { id: overwrite, type: select, options: ["no", "yes"], default: "no", label: Replace the entries if they exist }
+  - { id: save_first, type: select, options: ["yes", "no"], default: "yes", label: Save the running config to disk first }
+  - { id: profile, type: select, options: [other-node, same-node], default: other-node, label: "Use this config for (other-node = a different node; same-node = a rebuilt copy of this one)" }
+  - { id: drop_encrypted, type: select, options: ["yes", "no"], default: "yes", label: "Leave out objects holding encrypted values (no = keep them; needs f5-set-master-key on the target)" }
+  - { id: save_master_key, type: select, options: ["yes", "no"], default: "yes", label: "Also save the master key (secret entry <name>-master-key)" }
+  - { id: also_remove, type: string, default: "~~none~~", label: "Also remove these prefixes (separated by |; leave as is for none)" }
+
+steps:
+  - id: save
+    name: Save the configuration on the F5
+    when: { path: inputs.save_first, equals: "yes" }
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh save sys config > /var/tmp/labber-export.out 2>&1
+          && printf "SAVE-%s\n" OK
+          || { cat /var/tmp/labber-export.out; printf "SAVE-%s\n" FAILED; };
+          rm -f /var/tmp/labber-export.out'
+      expect: { status: 200, match: "SAVE-OK", message: "F5 could not save its configuration" }
+      timeout: 180
+
+  - id: write-scf
+    name: Write the single configuration file
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'rm -f /var/tmp/labber-export.scf;
+          tmsh save sys config file /var/tmp/labber-export.scf no-passphrase > /var/tmp/labber-export.out 2>&1
+          && printf "EXPORT-%s\n" SAVED
+          || { cat /var/tmp/labber-export.out; printf "EXPORT-%s\n" FAILED; };
+          rm -f /var/tmp/labber-export.out'
+      expect: { status: 200, match: "EXPORT-SAVED", message: "F5 could not write the configuration file" }
+      timeout: 300
+
+  - id: read
+    name: Read it back without the device-specific settings
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        # awk: a stanza starts at a line that begins with a lowercase word and
+        # ends in a brace; each stanza is buffered, then printed, dropped by
+        # prefix, dropped for an encrypted value / a device file, or -- for a
+        # `sys folder` -- printed without its device-group and custom
+        # traffic-group lines. Then the cluster settings as comments. Comment
+        # lines never contain braces (f5-load-config also drops this trailing
+        # block before F5 checks the file).
+        utilCmdArgs: >-
+          -c 'if [ "{{inputs.profile}}" = same-node ];
+          then s="sys management-ip|sys management-route|sys license|cm |sys file |sys crypto cert|sys crypto key";
+          else s="sys management-ip|sys management-route|sys global-settings|cm |auth user|auth password-policy|net self |sys provision|sys license|sys file |sys crypto cert|sys crypto key";
+          fi;
+          s="$s|sys datasync-global|sys folder /Common/datasync-global";
+          e=0; [ "{{inputs.drop_encrypted}}" = yes ] && e=1;
+          awk -v skip="^($s|{{inputs.also_remove}})" -v enc="$e" -v hdr="# f5-export-config: left out these objects, which only work on the device they came from:" -v fhdr="# f5-export-config: removed device-group / custom traffic-group lines from these folders (f5-cluster-pair restores the device group):" -v r1="(encrypted value) " -v r2="(file on the device) " -v sp="#   " -v blank=""
+          "function keep(l) { if (!folder) return 1; if (l ~ /^[ \t]+device-group[ \t]/ && l !~ /[ \t]none[ \t]*\$/) return 0; if (l ~ /^[ \t]+traffic-group[ \t]/ && l !~ /traffic-group-(1|local-only)[ \t]*\$/) return 0; return 1 }
+          function name(l) { sub(/[ \t]*[{][ \t]*\$/, \"\", l); return l }
+          function flush(   i, cut) { if (n > 0 && !drop) { if (enc && has) { dropped[++nd] = r1 name(buf[1]) } else if (files) { dropped[++nd] = r2 name(buf[1]) } else { cut = 0; for (i = 1; i <= n; i++) { if (i == 1 || keep(buf[i])) print buf[i]; else cut = 1 } if (cut) folders[++nf] = name(buf[1]) } } n = 0; has = 0; files = 0 }
+          /^[a-z].*[{}][ \t]*\$/ { flush(); drop = (\$0 ~ skip); folder = (\$0 ~ /^sys folder /) }
+          { buf[++n] = \$0; if (\$0 ~ /[\$]M[\$]/) has = 1; if (\$0 ~ /^[ \t]+cache-path[ \t]/) files = 1 }
+          END { flush(); if (nd > 0) { print blank; print hdr; for (i = 1; i <= nd && i <= 40; i++) print sp dropped[i]; if (nd > 40) print sp \"... and \" (nd - 40) \" more\" } if (nf > 0) { print blank; print fhdr; for (i = 1; i <= nf; i++) print sp folders[i] } }" /var/tmp/labber-export.scf;
+          if tmsh list cm device-group one-line 2>/dev/null | grep -q "type sync-failover"; then
+          printf "\n# f5-export-config: cluster settings on the source (for f5-cluster-pair):\n";
+          tmsh list cm device one-line configsync-ip mirror-ip unicast-address 2>/dev/null | tr "{}" "()" | sed "s/^/#   /";
+          tmsh list cm device-group one-line type devices auto-sync network-failover 2>/dev/null | grep -v datasync-global | tr "{}" "()" | sed "s/^/#   /";
+          fi;
+          rm -f /var/tmp/labber-export.scf'
+      expect: { status: 200 }
+      extract: { config: { json: commandResult } }
+      timeout: 120
+
+  - id: store
+    name: Save it to the Store
+    store:
+      save:
+        name: "{{inputs.entry_name}}"
+        value: "{{steps.read.out.config}}"
+        group: f5
+        description: "Configuration exported from {{inputs.target.node}} by f5-export-config ({{inputs.profile}})"
+        overwrite: "{{inputs.overwrite}}"
+
+  - id: read-master-key
+    name: Read the master key
+    when: { path: inputs.save_master_key, equals: "yes" }
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        # The markers around the key are printf output, never in the request
+        # F5 echoes back, so the regex can only match the real key.
+        utilCmdArgs: >-
+          -c 'k=$(f5mku -K 2>/dev/null); if [ -n "$k" ]; then printf "MK-%s-%s\n" "$k" END; else printf "MK-%s\n" NONE; fi'
+      expect: { status: 200, match: "MK-[A-Za-z0-9+/=]{16,}-END", message: "F5 did not return its master key (f5mku -K)" }
+      extract: { key: { regex: "MK-([A-Za-z0-9+/=]{16,})-END", secret: true } }
+
+  - id: store-master-key
+    name: Save the master key to the Store (secret)
+    when: { path: inputs.save_master_key, equals: "yes" }
+    store:
+      save:
+        type: secret
+        name: "{{inputs.entry_name}}-master-key"
+        value: "{{steps.read-master-key.out.key}}"
+        group: f5-master-key
+        description: "Master key of {{inputs.target.node}} (f5-export-config); load with f5-set-master-key before provisioning ASM"
+        overwrite: "{{inputs.overwrite}}"

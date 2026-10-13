@@ -1,0 +1,84 @@
+# Example: rebuild a working F5 HA pair (sync-failover) from Store entries.
+#
+# Before the first deploy, on the working cluster: run f5-export-config 1.1 on
+# each member with profile same-node, "Leave out objects holding encrypted
+# values" = no and "Also save the master key" = yes, saving as the two config
+# entries below (the first run also creates <entry>-master-key). Needs a
+# `password-simple` secret and the license entries in the Store.
+#
+# Each node comes back with its own config (hostname, VLANs, self IPs,
+# floating IPs, virtuals...), then f5-cluster-pair on f5-1 -- after f5-2 has
+# finished -- rebuilds device trust and the device group and syncs.
+# See docs/RUNBOOKS.md "Rebuilding an F5 HA pair".
+
+vars:
+  mgmt_bridge: vmbr4
+  data_bridge: vmbr8
+  ha_bridge: vmbr9
+  license_1: lic-lab-01
+  license_2: lic-lab-02
+  config_1: f5-node1-config          # Store text entries (f5-export-config, same-node)
+  config_2: f5-node2-config
+  master_key: f5-node1-config-master-key   # Store secret saved by the export
+  ha_ip_1: 10.1.30.11                # each node's HA self IP, as in its config
+  ha_ip_2: 10.1.30.12
+  device_group: failover-dg
+
+onBootstrapFailure: keep
+
+nodes:
+  f5-1:
+    kind: f5_bigip_ve
+    bootstrap:
+      - runbook: f5-first-boot
+      - runbook: f5-web-pass-change
+      - runbook: f5-skip-setup-utility
+      - runbook: f5-install-license
+        inputs: { license: "{{vars.license_1}}", method: offline }
+      - runbook: f5-set-master-key             # BEFORE provisioning (ASM creates encrypted data)
+        inputs: { master_key: "{{vars.master_key}}" }
+      - runbook: f5-provision-modules
+      - runbook: f5-load-config
+        version: "1.1"                         # tidies cluster-only references
+        inputs: { config: "{{vars.config_1}}" }
+      - runbook: f5-cluster-pair
+        waitFor: f5-2                          # f5-2 must have its config first
+        inputs:
+          peer: f5-2
+          ha_ip: "{{vars.ha_ip_1}}"
+          peer_ha_ip: "{{vars.ha_ip_2}}"
+          device_group: "{{vars.device_group}}"
+  f5-2:
+    kind: f5_bigip_ve
+    bootstrap:
+      - runbook: f5-first-boot
+      - runbook: f5-web-pass-change
+      - runbook: f5-skip-setup-utility
+      - runbook: f5-install-license
+        inputs: { license: "{{vars.license_2}}", method: offline }
+      - runbook: f5-set-master-key
+        inputs: { master_key: "{{vars.master_key}}" }
+      - runbook: f5-provision-modules
+      - runbook: f5-load-config
+        version: "1.1"
+        inputs: { config: "{{vars.config_2}}" }
+
+links:
+  - name: mgmt
+    external: true
+    bridge: "{{vars.mgmt_bridge}}"
+    endpoints:
+      - { node: f5-1, interface: net0 }
+      - { node: f5-2, interface: net0 }
+  - name: data
+    external: true
+    bridge: "{{vars.data_bridge}}"
+    endpoints:
+      - { node: f5-1, interface: net1 }
+      - { node: f5-2, interface: net1 }
+  - name: ha
+    external: true
+    bridge: "{{vars.ha_bridge}}"
+    endpoints:
+      - { node: f5-1, interface: net2 }
+      - { node: f5-2, interface: net2 }

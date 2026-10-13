@@ -1,0 +1,6 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Turn an installed-but-unconfigured Gaia clone into a gateway, cluster member, standalone (gateway + management) or Security Management Server (config_system, dry-run first).",
+  "changelog": "Expert password set with set expert-password-hash (no interactive prompts; 1.0 hung waiting for the confirm prompt) and saved with save config; clish errors stop the run; config_system long options; install_ppak dropped (not an R81.20 parameter); IP-without-gateway checked up front; time zone input."
+}

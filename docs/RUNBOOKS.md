@@ -22,11 +22,16 @@ a shared runbook can only do what these allow, against the node you choose.
 | `console` | Types into the node's serial console and waits for output (`expect` / `send`), optionally capturing a value such as the IP. `paste` types a whole block of lines (a config), waits for the device to go quiet, and fails if it printed an error. |
 | `http` | Calls the node's management API (iControl REST, PAN-OS XML API, FortiOS…), with polling to wait for a service or a reboot. |
 | `lab` | Acts on labber-pve itself: `setMgmtIp` saves the IP on the node's card and lab file; `assertIdentity` checks the node's UUID/MAC. |
-| `store` | Writes a captured value into the Store as a `text` entry (never touches secrets or licenses, and only replaces an existing entry when told to). |
+| `store` | Writes a captured value into the Store as a `text` entry, or with `type: secret` as a secret (e.g. an F5 master key; masked in logs). Never touches licenses, only replaces an existing entry when told to, and only replaces a secret in its own named group -- so it cannot overwrite your passwords. |
 | `wait` | Pauses. |
 
 The editor has a **syntax help** panel with every option. Values are
 inserted with `{{inputs.x}}`, `{{store.name}}`, `{{steps.id.out.name}}`.
+A filter can follow the name: `| b64`, `| url`, `| trim`, `| netmask`
+(24 -> 255.255.255.0) and `| sha512crypt` (a salted `$6$` password hash,
+for commands that take a hash instead of prompting for a password -- e.g.
+Check Point's `set expert-password-hash`; a secret's hash is masked in logs
+like the secret itself).
 
 `console` steps need the node's template to have a serial console
 (`serial0`); `http` steps need a management IP saved on the node.
@@ -164,6 +169,47 @@ them are reported by F5's check; recreate them on the target.
 
 `f5-set-static-ip` (console) is the alternative to step 1's DHCP address.
 
+### Rebuilding an F5 HA pair (cluster)
+
+Since `f5-export-config` 1.1 / `f5-load-config` 1.1 a cluster member's config
+loads without hand-editing (no more `also_remove: sys folder|...`), and a pair
+comes back as a pair:
+
+1. On each member of the working cluster run `f5-export-config` **1.1** with
+   profile **same-node**, "Leave out objects holding encrypted values" = **no**
+   and "Also save the master key" = yes. Name them e.g. `f5-node1-config` and
+   `f5-node2-config`; you get `f5-node1-config-master-key` too (cluster
+   members share one master key, so either one serves both nodes). The
+   export leaves out device trust (`cm`) and F5's `datasync-global` objects,
+   strips device-group / custom traffic-group lines from `sys folder`
+   stanzas, and writes the source's cluster settings as comments at the end.
+2. In the lab file, per node: `f5-first-boot`, `f5-web-pass-change`,
+   `f5-skip-setup-utility`, `f5-install-license`, **`f5-set-master-key`**
+   (before provisioning -- once ASM is provisioned the node holds encrypted
+   data and the key can no longer be changed safely), `f5-provision-modules`,
+   `f5-load-config` **1.1** with the node's own entry.
+3. Last on node 1: `f5-cluster-pair` with `waitFor: <node 2>` and
+   `inputs: { peer: <node 2>, ha_ip: ..., peer_ha_ip: ..., device_group: ... }`.
+   It renames each `cm device` to its hostname, resets and rebuilds device
+   trust, sets the config-sync / failover / mirror addresses, creates the
+   sync-failover group, syncs (also F5's own `datasync-global-dg`), waits for
+   "In Sync", and checks one node is ACTIVE and the other STANDBY. F5 puts
+   the root and `/Common` folders into the new group by itself.
+
+See `labs/f5-ha-pair-restore-example.lab.yml`. Needs: different hostnames on
+the two nodes (a same-node config carries each node's own), the HA self IPs
+in the loaded configs, port lockdown on them allowing at least TCP 4353 and
+UDP 1026, and the same admin password on both. Floating self IPs and virtual
+addresses come back with the config; until the pair is built both nodes hold
+them, so expect a short duplicate-address period during the build.
+
+The master key: `f5-export-config` reads it with `f5mku -K`, and
+`f5-set-master-key` installs it with `f5mku -r` (F5's "copy a master key to a
+new system" method). F5 warns that changing the key on a device whose config
+already holds encrypted values makes later loads fail, so the runbook looks
+for `$M$` values first and refuses unless told otherwise. **Not yet run on a
+real F5** (f5-set-master-key, f5-cluster-pair, export/load 1.1).
+
 Steps can be made conditional with `when:` (add `not: true` to run a step
 unless the value matches).
 
@@ -221,12 +267,22 @@ nodes:
         inputs: { license: lic-lab-01, method: offline }
         wait: 20          # optional: pause this many seconds first
         onFail: stop      # stop (default) | continue
+      - runbook: f5-cluster-pair
+        waitFor: f5-2     # optional: first wait until f5-2's whole bootstrap has finished
+        inputs: { peer: f5-2, ha_ip: 10.1.30.11, peer_ha_ip: 10.1.30.12 }
 ```
 
 - The node is the runbook's target automatically; `inputs` supplies the rest
   (Store entry names, choices). `version:` pins a version, otherwise the
   highest locked one runs.
 - Each node's list runs in order; different nodes run in parallel (up to 3).
+- `waitFor: <node>` (or a list) holds an entry until those nodes have finished
+  their whole bootstrap; if one of them fails, the waiting entry fails too
+  and resumes with the rest after a fix. A loop (A waits for B, B for A) is
+  refused when the lab file is checked. Nodes that others wait for are
+  started first.
+- A runbook with a second node input (`f5-cluster-pair`'s `peer`) takes that
+  node's name: `inputs: { peer: f5-2 }`.
 - Before anything is built, every named runbook and Store entry is checked,
   so a typo fails in seconds, not after a ten-minute build.
 - Progress prints in the lab's deploy terminal, e.g. `[f5-1] f5-first-boot:

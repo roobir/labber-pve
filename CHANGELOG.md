@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.3.3
+
+### Added
+- **Rebuild an F5 HA pair to the state it was in.** Export each member of a
+  working sync-failover pair, destroy the lab, and its lab file brings the
+  pair back -- configs, encrypted values, device trust, device group, sync --
+  with no manual steps. Verified on BIG-IP 17.5.1.5 with LTM + ASM. See
+  docs/RUNBOOKS.md "Rebuilding an F5 HA pair" and
+  `labs/f5-ha-pair-restore-example.lab.yml`.
+  - `f5-set-master-key` (new): gives a fresh BIG-IP the master key saved by
+    the export, so encrypted values (monitor passwords, key passphrases, ASM
+    bot-signature data) load as they are. Run it before provisioning ASM.
+  - `f5-cluster-pair` (new, 1.3): names each device after its hostname, sets
+    the config-sync / failover / mirror addresses, builds device trust
+    (reset, retry while F5's device management restarts, confirm), creates
+    the sync-failover group, syncs, and waits until both nodes read In Sync
+    and one is ACTIVE, the other STANDBY. Safe to run again.
+  - `f5-export-config` 1.3: cluster members export cleanly (folder
+    device-group lines, datasync and ASM device-sync objects left out),
+    optional master-key capture into a secret Store entry, the source's
+    cluster settings recorded as comments.
+  - `f5-load-config` 1.2: tidies the same cluster-only references on the F5
+    before checking the file, so configs exported earlier load too.
+- **Bootstrap `waitFor: <node>`**: an entry waits until other nodes have
+  finished their bootstrap (loops are refused when the lab file is checked).
+  A second node input takes a node name: `inputs: { peer: f5-2 }`.
+- Template filter `| sha512crypt` (a salted `$6$` password hash, masked in
+  logs like the secret itself).
+- Store writes from runbooks can be `type: secret` (only replacing a secret
+  in the runbook's own group); http `extract` rules can be `secret: true`.
+
+### Fixed
+- **Check Point `checkpoint-first-time-config` 1.4** now configures a fresh
+  Gaia clone end to end (verified on R82): the expert password is set with
+  `set expert-password-hash` and saved; while waiting for the expert prompt
+  it presses Enter (Gaia loses the Enter sent with the password); answers the
+  reboot confirmation. `config_system` uses its documented long options;
+  `install_ppak` is gone. `checkpoint-sms-add-gateway` / `-cluster` 1.2 get
+  the same expert-login fix.
+
+### Upgrading
+- Built-in runbooks are seeded as new versions; your existing versions are
+  never overwritten. If you locked an older version, "latest" keeps using it
+  until you lock the new one -- or pin `version:` in the lab file.
+
 ## 0.3.2
 
 ### Fixed

@@ -1,0 +1,233 @@
+title: Check Point Gaia first-time configuration by role (console)
+vendor: checkpoint_gaia
+
+# 1.1 -- changes from 1.0 (which failed on a real R81.20 clone: after
+# `set expert-password` the console went silent once the first password was
+# typed, and the "(again)" prompt never came):
+#   * the expert password is set with ONE non-interactive command,
+#     `set expert-password-hash <SHA-512 hash>` (hash made by labber-pve,
+#     fresh salt each run), so there are no password prompts to race --
+#     and the hash, like the password, is masked in logs;
+#   * `save config` afterwards -- 1.0 never saved, so the expert password
+#     would not have survived the reboot at the end;
+#   * clish errors (CLINFR...) stop the run instead of being missed;
+#   * config_system is called with its documented long options
+#     (--config-file, --dry-run); `install_ppak` dropped (not in the R81.20
+#     parameter list); an IP without a gateway is refused before anything
+#     runs; the time zone is an input.
+# Needs a labber-pve server that knows the `sha512crypt` filter.
+#
+# Parameters follow Check Point's "Running the First Time Configuration
+# Wizard in CLI Expert mode" (R81.20 Installation and Upgrade Guide); the file
+# is validated with `config_system --dry-run` before it is applied, so a wrong
+# or unsupported key stops the run with Check Point's own message and changes
+# nothing. `config_system --list-params` on the node shows what its version
+# accepts.
+#
+# For a template built the "install once" way: Gaia installed from the ISO,
+# shut down BEFORE the First Time Configuration Wizard, then finalized. Roles:
+#   gateway         Security Gateway managed by a Security Management Server
+#   cluster-member  ClusterXL member (build the cluster with checkpoint-sms-add-cluster)
+#   standalone      Security Gateway AND Security Management on this one box
+#   sms             Security Management Server (primary)
+# Gateways and cluster members get a SIC one-time key; management roles get a
+# SmartConsole administrator. Check Point allows letters and digits only in
+# both (SIC key 4-127 characters). Expert password: 6+ characters.
+#
+# IP: run checkpoint-set-mgmt-ip first to move a clone off the shared
+# install-time IP; leave `ip` empty here to keep that address. Or give `ip`
+# (with prefix and gateway) to have the wizard set it.
+#
+# Logs in, sets + saves the expert password, writes /home/admin/ftw.conf,
+# dry-runs it, applies it, reboots and waits for the login prompt. A
+# management role can take 15+ minutes.
+
+inputs:
+  - { id: target, type: target, kind: checkpoint_gaia, label: Gaia node }
+  - { id: role, type: select, options: [gateway, cluster-member, standalone, sms], default: gateway, label: Role }
+  - { id: admin_password, type: store, storeType: secret, default: password-complex, label: Gaia admin password (set during the install) }
+  - { id: expert_password, type: store, storeType: secret, default: password-complex, label: Expert-mode password to set }
+  - { id: hostname, type: string, default: gaia, label: Hostname }
+  - { id: timezone, type: string, default: Etc/GMT, label: "Time zone (Area/Region as Gaia lists it)" }
+  - { id: sic_key, type: store, storeType: secret, default: checkpoint-sic, label: "SIC one-time key (gateway / cluster member; letters and digits)" }
+  - { id: mgmt_admin, type: string, default: admin, label: "SmartConsole administrator (standalone / sms)" }
+  - { id: mgmt_admin_password, type: store, storeType: secret, default: checkpoint-admin, label: "SmartConsole administrator password (standalone / sms; letters and digits)" }
+  - { id: interface, type: string, default: eth0, label: Management interface }
+  - { id: ip, type: string, optional: true, label: "Management IP (empty = keep the current one)", placeholder: 192.168.99.60 }
+  - { id: prefix, type: number, default: 24, label: Prefix length }
+  - { id: gateway, type: string, optional: true, label: Default gateway, placeholder: 192.168.99.1 }
+
+steps:
+  - id: ip-needs-gateway
+    name: Check the IP settings are complete
+    when:
+      - { path: inputs.ip, exists: true }
+      - { path: inputs.gateway, exists: false }
+    fail: 'a management IP was given without a default gateway -- give both, or leave the IP empty to keep the current address'
+
+  - id: login
+    name: Wait for the login prompt and log in
+    console:
+      - expect: 'login:'
+        timeout: 1200
+        nudge: 10
+        send: admin
+      - expect: 'password:'
+        send: '{{inputs.admin_password}}'
+      - expect: '>\s*$'
+        timeout: 60
+
+  - id: expert-password
+    name: Set and save the expert-mode password (as a hash, no prompts)
+    console:
+      - send: lock database override
+      - expect: '>\s*$'
+      - paste: |
+          set expert-password-hash {{inputs.expert_password | sha512crypt}}
+          save config
+        failOn: 'Invalid command|Incomplete command|CLINFR\d+|not allowed|failed'
+      - expect: '>\s*$'
+
+  - id: expert
+    name: Enter expert mode
+    console:
+      - send: expert
+      - expect: 'password:'
+        send: '{{inputs.expert_password}}'
+      - expect: '#\s*$'
+        timeout: 30
+
+  - id: write-common
+    name: Write the first-time configuration (common part)
+    console:
+      - paste: |
+          cat > /home/admin/ftw.conf <<'LABBER_EOF'
+          hostname={{inputs.hostname}}
+          timezone='{{inputs.timezone}}'
+          ipstat_v6=off
+          download_info=false
+          upload_info=false
+          reboot_if_required=false
+          LABBER_EOF
+      - expect: '#\s*$'
+
+  - id: write-ip
+    name: Add the management IP settings
+    when: { path: inputs.ip, exists: true }
+    console:
+      - paste: |
+          cat >> /home/admin/ftw.conf <<'LABBER_EOF'
+          iface={{inputs.interface}}
+          ipstat_v4=manually
+          ipaddr_v4={{inputs.ip}}
+          masklen_v4={{inputs.prefix}}
+          default_gw_v4={{inputs.gateway}}
+          LABBER_EOF
+      - expect: '#\s*$'
+
+  - id: write-gateway
+    name: Add the Security Gateway settings
+    when: { path: inputs.role, equals: gateway }
+    console:
+      - paste: |
+          cat >> /home/admin/ftw.conf <<'LABBER_EOF'
+          install_security_gw=true
+          gateway_daip=false
+          gateway_cluster_member=false
+          install_security_managment=false
+          ftw_sic_key={{inputs.sic_key}}
+          LABBER_EOF
+      - expect: '#\s*$'
+
+  - id: write-cluster
+    name: Add the cluster-member settings
+    when: { path: inputs.role, equals: cluster-member }
+    console:
+      - paste: |
+          cat >> /home/admin/ftw.conf <<'LABBER_EOF'
+          install_security_gw=true
+          gateway_daip=false
+          gateway_cluster_member=true
+          install_security_managment=false
+          ftw_sic_key={{inputs.sic_key}}
+          LABBER_EOF
+      - expect: '#\s*$'
+
+  - id: write-standalone
+    name: Add the standalone (gateway + management) settings
+    when: { path: inputs.role, equals: standalone }
+    console:
+      - paste: |
+          cat >> /home/admin/ftw.conf <<'LABBER_EOF'
+          install_security_gw=true
+          gateway_daip=false
+          gateway_cluster_member=false
+          install_security_managment=true
+          install_mgmt_primary=true
+          install_mgmt_secondary=false
+          mgmt_admin_radio=new_admin
+          mgmt_admin_name={{inputs.mgmt_admin}}
+          mgmt_admin_passwd={{inputs.mgmt_admin_password}}
+          mgmt_gui_clients_radio=any
+          LABBER_EOF
+      - expect: '#\s*$'
+
+  - id: write-sms
+    name: Add the Security Management Server settings
+    when: { path: inputs.role, equals: sms }
+    console:
+      - paste: |
+          cat >> /home/admin/ftw.conf <<'LABBER_EOF'
+          install_security_gw=false
+          install_security_managment=true
+          install_mgmt_primary=true
+          install_mgmt_secondary=false
+          mgmt_admin_radio=new_admin
+          mgmt_admin_name={{inputs.mgmt_admin}}
+          mgmt_admin_passwd={{inputs.mgmt_admin_password}}
+          mgmt_gui_clients_radio=any
+          LABBER_EOF
+      - expect: '#\s*$'
+
+  - id: dry-run
+    name: Validate the configuration (config_system --dry-run, changes nothing)
+    console:
+      # Markers are built with printf so the echoed command line never matches them.
+      - send: "config_system --config-file /home/admin/ftw.conf --dry-run; printf 'FTW-%s=%s\\n' CHECK $?"
+      - expect: 'FTW-CHECK=(\d+)'
+        as: rc
+        timeout: 300
+      - expect: '#\s*$'
+
+  - id: dry-run-failed
+    name: Stop if the configuration was rejected
+    when: { path: steps.dry-run.out.rc, equals: '0', not: true }
+    fail: 'config_system --dry-run rejected the configuration (exit code {{steps.dry-run.out.rc}}) -- its message is in the transcript above; nothing was changed'
+
+  - id: run
+    name: Run the first-time configuration (a management role can take 15+ minutes)
+    console:
+      - send: "config_system --config-file /home/admin/ftw.conf; printf 'FTW-%s=%s\\n' RC $?"
+      - expect: 'FTW-RC=(\d+)'
+        as: rc
+        timeout: 3600
+      - expect: '#\s*$'
+
+  - id: run-failed
+    name: Stop if config_system reported a failure
+    when: { path: steps.run.out.rc, equals: '0', not: true }
+    fail: 'config_system failed (exit code {{steps.run.out.rc}}) -- see the transcript above and /var/log/ftw_install.log on the node'
+
+  - id: reboot
+    name: Reboot and wait for the configured system
+    console:
+      - send: reboot
+      - expect: 'login:'
+        timeout: 1800
+        nudge: 30
+
+  - id: update-lab
+    name: Save the IP on the node in labber-pve
+    when: { path: inputs.ip, exists: true }
+    lab:
+      setMgmtIp: { ip: '{{inputs.ip}}', port: 443 }

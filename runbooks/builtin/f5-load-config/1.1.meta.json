@@ -1,0 +1,6 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Load a stored F5 configuration (SCF) onto a node: upload in parts, tidy, verify, merge or replace, save.",
+  "changelog": "Tidies cluster-only references (cm, datasync-global, folder device-group lines) on the F5 before verify, so configs from cluster members load; master-key mismatch explained."
+}
