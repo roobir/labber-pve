@@ -24,5 +24,14 @@
     item.addEventListener('click', () => show(item.dataset.panel));
   }
 
-  window.SettingsNav = { show };
+  // Opens the settings window on `name`. Clicking the panel's nav item (not
+  // just show()) also runs whatever that panel loads when it is opened --
+  // the Activity and Backup panels fetch their data on that click.
+  function open(name) {
+    document.getElementById('settings-btn').click();
+    const item = nav.querySelector(`.settings-nav-item[data-panel="${name}"]`);
+    if (item) item.click();
+  }
+
+  window.SettingsNav = { show, open };
 })();

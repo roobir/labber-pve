@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+- **Activity log** (Settings -> Activity): every change made in the app --
+  who, when, from which address, and how it ended (ok / failed / denied /
+  aborted). Lab saves, deploys, destroys, bootstraps and updates; node power,
+  mgmt IP and identity; consoles opened and for how long; runbook runs,
+  aborts and edits; Store, settings, template, user and token changes;
+  changes sent through the API relay (under the token's label); sign-ins,
+  failed sign-ins and lockouts. Values are never logged (no passwords or
+  secrets, nothing typed in a console), and nothing in the app can edit or
+  delete an entry. Filter by text, user, kind and date; export to CSV.
+  - Kept as one file per day in `<LABS_DIR>/.audit/` for
+    `AUDIT_RETENTION_DAYS` (default 90), and printed to stdout as
+    `audit {...}` lines so the container log keeps its own copy
+    (`AUDIT_STDOUT=off` to stop that).
+  - **most active**: changes per user as a chart -- labs, runbooks, consoles
+    and other changes -- for the last 7 days, 30 days, all time or all three,
+    with a table view.
+  - The labs window shows each lab's last few changes and who made them,
+    with a link to its full activity.
+- **Backups to a Git repository** (Settings -> Backup): labs, every runbook
+  version, the activity log and settings without their secrets, committed to
+  a folder of a GitHub, GitHub Enterprise Server or Forgejo / Gitea
+  repository -- one commit per backup, so the repository's history is the
+  backup history. Monthly by default (or weekly), plus "back up now".
+  - Never included: the Store, the Proxmox token / password, password and
+    API-token hashes, the backup token.
+  - The server type is detected; no user name is needed. A self-signed
+    server can be trusted by pasting its certificate, or TLS verification
+    can be switched off.
+  - The dashboard warns when the last backup failed, or when there has been
+    no good backup for 40 days (monthly) / 10 days (weekly).
+  - docs/BACKUP.md, including how to restore.
+- **Lab export, import and duplicate** (labs window): export the saved lab
+  file as an exact copy, or a clean copy without node uuid / mac pins and
+  management IPs; import a `.lab.yml` as a new lab, with a list of the
+  templates, runbooks and Store entries it needs that this labber lacks;
+  duplicate a lab as a new, clean copy. None of them ever replaces a lab.
+- `npm test`: the first tests in the repository (`test/`, Node's built-in
+  runner, no new dependencies). They are not part of the container image.
+
+### Changed
+- **Runbook library**: one card per runbook, showing its default version
+  (the one a lab or run uses when it names none: highest locked, else highest
+  draft) and any newer drafts; older versions fold away and stay runnable.
+  Hover a version's description for its changelog.
+- `f5-load-config` 1.3: waits for the F5 to answer again after applying the
+  configuration, and retries the save. A config that restarts the F5's REST
+  service while it loads got "HTTP 502 Proxy Error" from 1.2's save.
+
+### Upgrading
+- Nothing to do: no new settings are required, and existing labs, runbooks,
+  Store entries, users and settings are read as they are. An upgrade from
+  0.3.3 and a rollback to 0.3.3 were both tested on the same data volume.
+- New optional environment variables: `AUDIT_RETENTION_DAYS`,
+  `AUDIT_STDOUT`.
+- Bootstrap entries that name no version now get `f5-load-config` 1.3 (unless
+  you locked an older version).
+- The volume gains `.audit/` (the activity log) and, once backups are set up,
+  `.config/backup.json`.
+
 ## 0.3.3
 
 ### Added

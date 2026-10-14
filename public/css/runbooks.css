@@ -44,6 +44,14 @@
 .rb-version-row .rb-ver { width: 3.2rem; color: var(--fg); }
 .rb-version-row .rb-desc { flex: 1; min-width: 180px; color: var(--dim); }
 .rb-version-row .rb-row-actions { display: flex; gap: 0.4rem; }
+.rb-badge.default { border-color: var(--fg); color: var(--fg); }
+.rb-older-toggle {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  color: var(--dim); font: inherit; font-size: 0.75rem; padding: 0.4rem 0.8rem; cursor: pointer;
+}
+.rb-older-toggle:hover { color: var(--fg); }
+.rb-older { border-top: 1px solid var(--border); }
+.rb-older .rb-version-row { opacity: 0.8; }
 
 .rb-field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; color: var(--dim); margin-bottom: 0.8rem; }
 .rb-field input, .rb-field select, .rb-field textarea, .rb-toolbar input, .rb-toolbar select {

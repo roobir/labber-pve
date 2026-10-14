@@ -32,6 +32,12 @@ privileged container.
 
 ## Demo
 
+![Deploying an F5 lab with runbooks](docs/screenshots/deploy-f5-bootstrap.gif)
+
+Deploy an F5 lab: clone, wire, and bootstrap it with runbooks (first boot,
+licence, module provisioning, config load), then see who did what in
+Settings -> Activity.
+
 | | |
 |---|---|
 | ![Login](docs/screenshots/login.gif) Single-user (or multi-user) session auth, then straight to the live dashboard | ![Embedded web UI](docs/screenshots/web-rp-f5.gif) `web rp` embeds a node's own real web UI in an iframe — here, F5 BIG-IP's TMUI |
@@ -48,7 +54,7 @@ immediately with no restart.
 
 ```bash
 # 1. Generate the two required secrets (no local Node.js needed)
-podman run --rm ghcr.io/roobir/labber-pve:0.3.3 \
+podman run --rm ghcr.io/roobir/labber-pve:0.4.0 \
   node -e "console.log(require('bcryptjs').hashSync('yourpassword', 10))"   # DASHBOARD_PASSWORD_HASH
 openssl rand -hex 32                                                         # SESSION_SECRET
 
@@ -71,7 +77,7 @@ podman run -d --name labber-pve \
 Everything the app creates (settings, users, the Store, runbooks, lab
 state) lives under `/labs`, so keep that volume across upgrades. To
 update, pull the new image and recreate the container. Pin a version tag
-(`:0.3.3`) rather than `:latest` for anything you depend on.
+(`:0.4.0`) rather than `:latest` for anything you depend on.
 
 k3s/OpenShift: `kubectl apply -f k8s/pvc.yaml`, fill in
 `k8s/secret-example.yaml` with real values and apply it as a Secret
@@ -154,6 +160,20 @@ a shared runbook can only do what those steps allow.
   banner on a lab. It is a notice, not a lock: nothing is blocked, and
   anyone can extend, take over or release it.
 
+### Exporting and importing a lab
+
+In the **labs** window, **duplicate** saves a copy of a lab as a new lab
+(without node uuid / mac pins and management IPs, so both can run side by
+side), and **export** downloads the saved lab file: an **exact copy** (a
+backup, or the lab moved to another labber) or a **clean copy** without
+each node's uuid / mac pins and management IP, so a second copy can run
+next to the original. **import lab** adds a lab from a `.lab.yml` file. It
+never replaces an existing lab; a taken name asks for another one. The
+file is checked like any save and kept as written. Anything the lab needs
+that this labber doesn't have yet is listed after the import: templates,
+runbooks or runbook versions, and Store entries (licenses, passwords,
+saved configs).
+
 ## Reaching a node's web UI
 
 Once a node has a management IP (auto-detected via the QEMU guest
@@ -184,6 +204,19 @@ appliance management interfaces:
   Treat it like any other lab-management surface: internal network,
   VPN, or an authenticating reverse proxy in front of it. Leave the
   GUI domain setting empty and the listener never starts.
+- **Every change is recorded in an activity log** (Settings ->
+  Activity): who, when, from which address and how it ended. This
+  covers lab saves, deploys, destroys and bootstraps, node power,
+  consoles opened and for how long, runbook runs and edits, Store,
+  settings, user and token changes, changes sent through the API relay
+  (under the token's label), and sign-ins. Values are never logged, so
+  no passwords or secrets appear, and nothing typed in a console is
+  recorded. Entries can't be edited or deleted from the app. They are
+  kept in `<LABS_DIR>/.audit/` for `AUDIT_RETENTION_DAYS` (default 90)
+  and also printed to stdout as `audit {...}` lines, so the container
+  log keeps its own copy. The labs window shows each lab's last few
+  changes and who made them, and **most active** charts changes per
+  user for the last 7 days, 30 days or all time.
 - **The optional stats API and automation relay are off by default**,
   each behind their own explicit opt-in (see
   [docs/ADVANCED.md](docs/ADVANCED.md)).
@@ -211,6 +244,10 @@ appliance management interfaces:
 - [docs/CHECKPOINT.md](docs/CHECKPOINT.md) — Check Point labs end to
   end: one Gaia template, then standalone, management-only, gateway-only,
   gateway + SMS or cluster setups from runbooks, with sample lab files.
+- [docs/BACKUP.md](docs/BACKUP.md) — monthly / manual backups of
+  labs, runbooks, the activity log and settings (never the Store or
+  secrets) to a GitHub, GitHub Enterprise or Forgejo / Gitea repository,
+  and how to restore.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module layout and
   known limitations.
 

@@ -1,0 +1,6 @@
+{
+  "status": "draft",
+  "createdBy": "built-in",
+  "description": "Load a stored F5 configuration (SCF) onto a node: upload in parts, tidy, verify, merge or replace, wait for the F5, save.",
+  "changelog": "Waits for the F5 to answer again after applying, and retries the save on 500/502/503: a real 17.5 production export restarted the REST service during the merge and 1.2's save got HTTP 502 Proxy Error."
+}

@@ -1,0 +1,210 @@
+title: F5 BIG-IP load a stored configuration (REST)
+vendor: f5_bigip_ve
+
+# 1.3 -- waits for the F5 to answer again after applying the config, then
+# saves (retrying while the REST service is busy). A real 17.5 production
+# export (pr1/pr2) restarted the REST service while it was merged, and 1.2's
+# save got "HTTP 502 Proxy Error" from httpd straight away. Saving twice is
+# harmless, so a retry can never do damage.
+#
+# 1.2 -- the tidy step also drops ASM's cluster-only objects, seen in a real
+# BIG-IP 17.5.1.5 export of an HA pair with ASM sync: `asm device-sync
+# /Common/<group>_asm_sync/<device>` and the folders `<group>_asm_sync` and
+# `datasync-device-<device>`. They name a device group and devices that do
+# not exist on a fresh node; F5 recreates them once the pair has ASM sync.
+#
+# 1.1 -- changes from 1.0:
+#   * "Tidy the config for this node first" (default yes): before F5 checks
+#     the file, cluster-only references are taken out ON THE F5 -- `cm`
+#     stanzas, F5's datasync-global objects, and device-group / custom
+#     traffic-group lines in `sys folder` stanzas. A config exported from a
+#     cluster member by f5-export-config 1.0 (or pasted from any cluster
+#     member) then loads without hand-editing; f5-cluster-pair builds the
+#     cluster afterwards.
+#   * when F5 rejects encrypted values ("encrypted with a different master
+#     key"), the failure says how to fix it (f5-set-master-key, or export
+#     with "Leave out objects holding encrypted values").
+#
+# Takes a BIG-IP single-configuration-file (SCF) saved as a `text` entry in
+# the Store, checks that the F5 accepts it, applies it, and saves.
+#
+#   merge   (default) adds to / updates the running config
+#   replace replaces the running config with the file (keeps the license)
+#
+# Capture the text from an existing F5 with
+#   tmsh save sys config file /var/tmp/lab.scf no-passphrase
+# and paste the file into a Store `text` entry. Leave device-specific items
+# (management IP, hostname, license, device trust) out of the file -- the
+# f5-export-config runbook does this for you. Run this AFTER
+# f5-install-license and f5-provision-modules: modules the config uses must be
+# licensed and provisioned. Long configs are sent in parts (a single shell
+# argument can only hold ~128 KB) and reassembled on the F5.
+#
+# The verify/apply commands print a marker built with printf so the marker
+# text is never in the request itself (F5 echoes the request back, which
+# would otherwise make a failure look like a success).
+
+inputs:
+  - { id: target, type: target, kind: f5_bigip_ve, label: F5 node }
+  - { id: admin_user, type: string, default: admin, label: Admin user }
+  - { id: admin_password, type: store, storeType: secret, default: password-simple, label: Admin password }
+  - { id: config, type: store, storeType: text, label: Configuration (Store text entry) }
+  - { id: mode, type: select, options: [merge, replace], default: merge, label: How to apply it }
+  - { id: save, type: select, options: ["yes", "no"], default: "yes", label: Save the config afterwards }
+  - { id: tidy, type: select, options: ["yes", "no"], default: "yes", label: "Tidy the config for this node first (drop cm / datasync / ASM device-sync objects and folder device-group lines)" }
+
+steps:
+  - id: reset-upload
+    name: Clear any earlier upload
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'rm -f /var/tmp/labber-load.part.* /var/tmp/labber-load.b64 /var/tmp/labber-load.scf /var/tmp/labber-load.out; printf "RESET-%s\n" DONE'
+      expect: { status: 200, match: "RESET-DONE" }
+
+  - id: upload
+    name: Send the configuration to the F5 (in parts)
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      eachChunk: { value: "{{inputs.config | b64}}", size: 30000 }
+      json:
+        command: run
+        # Each part is its own file (overwritten, not appended to), so asking
+        # again after a timeout can never duplicate data.
+        utilCmdArgs: >-
+          -c 'printf %s {{chunk}} > /var/tmp/labber-load.part.{{chunkIndex}} && printf "PART-%s\n" STORED'
+      expect: { status: 200, match: "PART-STORED", message: "F5 did not accept a part of the configuration" }
+      timeout: 120
+      # F5's REST service sometimes answers "500 AsyncContext timeout" when it is busy
+      retry: { on: [500, 502, 503], every: 5, timeout: 180 }
+
+  - id: decode
+    name: Rebuild the configuration file on the F5
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'for i in $(ls /var/tmp/labber-load.part.* | sed "s/.*\.//" | sort -n); do cat /var/tmp/labber-load.part.$i; done | base64 -d > /var/tmp/labber-load.scf
+          && rm -f /var/tmp/labber-load.part.* && printf "UPLOAD-%s\n" DONE'
+      expect: { status: 200, match: "UPLOAD-DONE", message: "F5 could not rebuild the configuration file from the uploaded parts" }
+      timeout: 120
+      retry: { on: [500, 502, 503], every: 5, timeout: 120 }
+
+  - id: tidy
+    name: Take cluster-only references out of the file
+    when: { path: inputs.tidy, equals: "yes" }
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        # Same stanza rule as f5-export-config: a stanza starts at a line that
+        # begins with a lowercase word and ends in a brace. The notes
+        # f5-export-config appends at the end (# f5-export-config: ...) are
+        # dropped too, so F5 only ever checks configuration lines.
+        utilCmdArgs: >-
+          -c 'awk -v skip="^(cm |sys datasync-global|sys folder /Common/datasync-global|asm device-sync |sys folder /Common/datasync-device-|sys folder [^ ]*_asm_sync )"
+          "function keep(l) { if (!folder) return 1; if (l ~ /^[ \t]+device-group[ \t]/ && l !~ /[ \t]none[ \t]*\$/) return 0; if (l ~ /^[ \t]+traffic-group[ \t]/ && l !~ /traffic-group-(1|local-only)[ \t]*\$/) return 0; return 1 }
+          /^[a-z].*[{}][ \t]*\$/ { drop = (\$0 ~ skip); folder = (\$0 ~ /^sys folder /); if (drop) n++; print_hdr = 1 }
+          /^# f5-export-config:/ { tail = 1 }
+          tail && (/^#/ || /^[ \t]*\$/) { next }
+          { if (drop) next; if (print_hdr || keep(\$0)) print; else cut++; print_hdr = 0 }
+          END { printf \"TIDY-%s dropped=%d folderlines=%d\\n\", \"DONE\", n, cut > \"/dev/stderr\" }"
+          /var/tmp/labber-load.scf > /var/tmp/labber-load.tidy 2> /var/tmp/labber-load.out
+          && mv /var/tmp/labber-load.tidy /var/tmp/labber-load.scf && cat /var/tmp/labber-load.out
+          || { cat /var/tmp/labber-load.out; printf "TIDY-%s\n" FAILED; };
+          rm -f /var/tmp/labber-load.out /var/tmp/labber-load.tidy'
+      expect: { status: 200, match: "TIDY-DONE", message: "F5 could not tidy the configuration file" }
+      timeout: 120
+
+  - id: verify
+    name: Ask the F5 to check the configuration (changes nothing)
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh load sys config merge file /var/tmp/labber-load.scf verify > /var/tmp/labber-load.out 2>&1
+          && printf "LOAD-%s\n" OK
+          || { grep -q "different master key" /var/tmp/labber-load.out && printf "This F5 has a different master key than the device the config came from: run f5-set-master-key (with the <config>-master-key entry) on a FRESH node before f5-provision-modules, or re-export with Leave out objects holding encrypted values = yes.\n";
+          cat /var/tmp/labber-load.out; printf "LOAD-%s\n" FAILED; rm -f /var/tmp/labber-load.scf; };
+          rm -f /var/tmp/labber-load.out'
+      expect: { status: 200, match: "LOAD-OK", message: "F5 refused the configuration (nothing was changed)" }
+      timeout: 300
+
+  - id: apply-merge
+    name: Apply the configuration (merge)
+    when: { path: inputs.mode, equals: merge }
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh load sys config merge file /var/tmp/labber-load.scf > /var/tmp/labber-load.out 2>&1
+          && printf "LOAD-%s\n" OK
+          || { cat /var/tmp/labber-load.out; printf "LOAD-%s\n" FAILED; };
+          rm -f /var/tmp/labber-load.scf /var/tmp/labber-load.out'
+      expect: { status: 200, match: "LOAD-OK" }
+      timeout: 600
+
+  - id: apply-replace
+    name: Apply the configuration (replace, keeping the license)
+    when: { path: inputs.mode, equals: replace }
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh load sys config file /var/tmp/labber-load.scf no-license > /var/tmp/labber-load.out 2>&1
+          && printf "LOAD-%s\n" OK
+          || { cat /var/tmp/labber-load.out; printf "LOAD-%s\n" FAILED; };
+          rm -f /var/tmp/labber-load.scf /var/tmp/labber-load.out'
+      expect: { status: 200, match: "LOAD-OK" }
+      timeout: 600
+
+  - id: wait-ready
+    name: Wait for the F5 to answer again after applying
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh show sys mcp-state field-fmt | grep -q "phase *running" && printf "MCP-%s\n" READY'
+      poll: { every: 10, timeout: 600, initialDelay: 5, until: { status: 200, match: "MCP-READY" } }
+
+  - id: save
+    name: Save the running configuration
+    when: { path: inputs.save, equals: "yes" }
+    http:
+      method: POST
+      path: /mgmt/tm/util/bash
+      auth: { user: "{{inputs.admin_user}}", password: "{{inputs.admin_password}}" }
+      json:
+        command: run
+        utilCmdArgs: >-
+          -c 'tmsh save sys config > /var/tmp/labber-load.out 2>&1
+          && printf "SAVE-%s\n" OK
+          || { cat /var/tmp/labber-load.out; printf "SAVE-%s\n" FAILED; };
+          rm -f /var/tmp/labber-load.out'
+      expect: { status: 200, match: "SAVE-OK" }
+      timeout: 180
+      # the REST service can still drop a request just after coming back
+      retry: { on: [500, 502, 503], every: 10, timeout: 300 }

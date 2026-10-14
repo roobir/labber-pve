@@ -228,6 +228,74 @@ a:hover { text-decoration: underline; }
 .users-list-row:last-child { border-bottom: none; }
 .users-list-empty { font-size: 0.8rem; color: var(--dim); }
 
+/* Settings -> Backup */
+.backup-row { display: flex; flex-wrap: wrap; gap: 0.8rem; }
+.backup-row label { flex: 1; min-width: 8rem; }
+.settings-body textarea {
+  background: transparent; border: 1px solid var(--border); color: var(--fg);
+  font-family: inherit; font-size: 0.75rem; padding: 0.5rem 0.6rem; resize: vertical;
+}
+.settings-body textarea:focus { outline: none; border-color: var(--accent); }
+.settings-body input[type="time"] {
+  background: transparent; border: 1px solid var(--border); color: var(--fg); font-family: inherit; padding: 0.45rem 0.6rem; font-size: 0.85rem;
+}
+.backup-ok { color: var(--accent); }
+.backup-failed { color: var(--danger); }
+
+/* Settings -> Activity (audit log). Scoped under .settings-body so these win
+   over the panel-wide label / input rules above. */
+.activity-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-bottom: 0.8rem; font-size: 0.8rem; }
+.settings-body .activity-filters input,
+.settings-body .activity-filters select,
+.settings-body .activity-filters button {
+  background: var(--card-bg); border: 1px solid var(--border); color: var(--fg); font: inherit; font-size: 0.8rem; padding: 0.35rem 0.5rem; height: 2rem; box-sizing: border-box;
+}
+.settings-body .activity-filters #activity-q { flex: 1; min-width: 140px; }
+.settings-body .activity-filters #activity-user { width: 8rem; }
+.settings-body .activity-filters label { flex-direction: row; align-items: center; gap: 0.3rem; margin: 0; }
+.settings-body .activity-filters button { cursor: pointer; }
+.settings-body .activity-filters button:hover { border-color: var(--accent); color: var(--accent); }
+.activity-list { overflow-x: auto; }
+.activity-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+.activity-table th { text-align: left; color: var(--dim); font-weight: 400; text-transform: uppercase; font-size: 0.65rem; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); }
+/* long unbroken values (token:ci-runner, relayEnabled=true) may break anywhere; time and result never */
+.activity-table td { padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+.activity-table .activity-time { white-space: nowrap; color: var(--dim); }
+.activity-table .activity-ip { font-size: 0.65rem; }
+.activity-result { border: 1px solid var(--border); padding: 0 0.3rem; font-size: 0.65rem; white-space: nowrap; }
+.activity-result.ok { border-color: var(--accent); color: var(--accent); }
+.activity-result.started { border-color: #e5a50a; color: #e5a50a; }
+.activity-result.failed, .activity-result.denied, .activity-result.aborted { border-color: var(--danger); color: var(--danger); }
+/* Settings -> Activity -> "most active" chart (settings-activity-chart.js).
+   Bars <= 24px with a 4px rounded data end, square at the baseline; 2px
+   surface gaps between segments; text in text colours, never the series'. */
+.activity-chart { position: relative; margin-bottom: 1rem; padding: 0.8rem; border: 1px solid var(--border); font-size: 0.75rem; }
+.settings-body .activity-filters #activity-chart-btn.active { border-color: var(--accent); color: var(--accent); }
+.chart-controls { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.7rem; }
+.chart-controls button { background: none; border: 1px solid var(--border); color: var(--dim); font: inherit; padding: 0.25rem 0.6rem; cursor: pointer; }
+.chart-controls button:hover { color: var(--fg); }
+.chart-controls button.active { border-color: var(--accent); color: var(--accent); }
+.chart-controls .chart-as-table { margin-left: auto; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 0.9rem; margin-bottom: 0.7rem; color: var(--dim); }
+.chart-key { display: inline-flex; align-items: center; gap: 0.35rem; }
+.chart-swatch { width: 10px; height: 10px; border-radius: 2px; }
+.chart-compare { display: grid; gap: 1.2rem; }
+.chart-panel { min-width: 0; }
+.chart-title { color: var(--fg); margin-bottom: 0.4rem; }
+.chart-row { display: grid; grid-template-columns: minmax(4rem, 9rem) 1fr; align-items: center; gap: 0.6rem; padding: 0.2rem 0; }
+.chart-user { color: var(--fg); text-align: right; overflow-wrap: anywhere; }
+.chart-track { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.chart-lane { flex: 1; min-width: 0; }
+.chart-stack { display: flex; gap: 2px; height: 16px; min-width: 4px; }
+.chart-seg { min-width: 2px; display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 700; cursor: default; }
+.chart-seg:last-child { border-radius: 0 4px 4px 0; }
+.chart-total { color: var(--dim); white-space: nowrap; min-width: 2.2rem; }
+.chart-more, .chart-note { margin-top: 0.5rem; color: var(--dim); }
+.chart-tooltip { position: absolute; z-index: 5; pointer-events: none; background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 0.3rem 0.5rem; white-space: nowrap; }
+
+#activity-more { margin-top: 0.6rem; background: none; border: 1px solid var(--border); color: var(--dim); font: inherit; font-size: 0.75rem; padding: 0.3rem 0.8rem; cursor: pointer; }
+#activity-more:hover { color: var(--fg); border-color: var(--fg); }
+
 .tplbuild-progress-wrap {
   display: flex;
   align-items: center;
@@ -659,6 +727,8 @@ a:hover { text-decoration: underline; }
 .gui-window { width: min(1200px, 96vw); height: min(820px, 92vh); }
 .proxmox-banner { margin: 0.6rem 2rem 0; padding: 0.5rem 0.8rem; border: 1px solid var(--danger); color: var(--danger); font-size: 0.8rem; }
 .proxmox-banner.hidden { display: none; }
+.proxmox-banner.warn { border-color: #e5a50a; color: #e5a50a; }
+.banner-link { background: none; border: none; padding: 0; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
 /* !important: the window's drag position is set inline (left/top) */
 .gui-window.maximized { left: 0.5vw !important; top: 0.5vh !important; width: 99vw; height: 99vh; }
 .gui-frame { flex: 1; width: 100%; border: none; background: #fff; }
@@ -752,6 +822,22 @@ a:hover { text-decoration: underline; }
 .labs-editor-actions button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .labs-editor-actions button.danger:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
 .labs-editor-actions button:disabled { opacity: 0.4; cursor: default; }
+.labs-editor-actions { position: relative; }
+.lab-history { font-size: 0.72rem; color: var(--dim); padding: 0.3rem 0.8rem; border-bottom: 1px solid var(--border); }
+.lab-history:empty { display: none; }
+.lab-history .banner-link { color: var(--accent); }
+.labs-export-menu {
+  position: absolute;
+  top: calc(100% + 0.3rem);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.4rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
 
 #labs-yaml {
   flex: 0 0 45%;
@@ -768,6 +854,7 @@ a:hover { text-decoration: underline; }
 #labs-yaml:disabled { color: var(--dim); }
 
 .labs-message {
+  white-space: pre-line;
   padding: 0.3rem 0.8rem;
   font-size: 0.75rem;
   color: var(--dim);

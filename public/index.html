@@ -28,6 +28,7 @@
   </header>
 
   <div class="proxmox-banner hidden" id="proxmox-banner" role="status"></div>
+  <div class="proxmox-banner hidden" id="backup-banner" role="status"></div>
 
   <div class="stats-bar">
     <div class="stat"><span class="stat-value" id="stat-labs">-</span><span class="stat-label">labs deployed</span></div>
@@ -68,6 +69,8 @@
       <div class="labs-body">
         <div class="labs-list">
           <button class="labs-new-btn" id="labs-new-btn">+ new lab</button>
+          <button class="labs-new-btn" id="labs-import-btn" title="add a lab from a .lab.yml file (never replaces an existing lab)">import lab</button>
+          <input type="file" id="labs-import-file" accept=".yml,.yaml" class="hidden" />
           <div class="labs-list-items" id="labs-list"></div>
         </div>
 
@@ -80,10 +83,13 @@
               <button id="labs-update-btn" disabled>update</button>
               <button id="labs-bootstrap-btn" disabled title="run (or resume) the runbooks listed under each node's bootstrap:">bootstrap</button>
               <button id="labs-destroy-btn" class="danger" disabled>destroy</button>
+              <button id="labs-duplicate-btn" disabled title="a copy of the saved lab as a new lab, without node uuid / mac pins and mgmt IPs">duplicate</button>
+              <button id="labs-export-btn" disabled title="download the saved lab file">export</button>
               <button id="labs-delete-btn" class="danger" disabled>delete</button>
             </div>
           </div>
           <div id="labs-reservation" class="lab-reservation"></div>
+          <div id="labs-history" class="lab-history"></div>
           <textarea id="labs-yaml" spellcheck="false" disabled></textarea>
           <div id="labs-message" class="labs-message"></div>
           <div id="labs-output" class="labs-output"></div>
@@ -270,6 +276,8 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
           <div class="settings-nav-item" data-panel="guiproxy">GUI Proxy</div>
           <div class="settings-nav-item" data-panel="publicapi">Public API</div>
           <div class="settings-nav-item" data-panel="users">Users</div>
+          <div class="settings-nav-item" data-panel="activity">Activity</div>
+          <div class="settings-nav-item" data-panel="backup">Backup</div>
           <div class="settings-nav-item" data-panel="about">About</div>
         </div>
 
@@ -504,6 +512,108 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
             </div>
           </div>
 
+          <div class="settings-panel hidden" data-panel="activity">
+            <div class="settings-section-title">Activity</div>
+            <div class="dim" style="font-size:0.75rem; margin-bottom:0.6rem;">
+              Every change made in this app: who, when, from which address,
+              and how it ended -- lab saves, deploys and destroys, node power,
+              console sessions opened, runbook runs, Store and settings
+              changes, sign-ins. What was changed is recorded, never the
+              values (no passwords or secrets), and nothing typed in a
+              console. Entries cannot be edited or deleted here.
+              <span id="activity-retention"></span>
+            </div>
+            <form id="activity-filters" class="activity-filters">
+              <input id="activity-q" type="search" placeholder="search…" autocomplete="off" />
+              <input id="activity-user" list="activity-users" placeholder="user" autocomplete="off" />
+              <datalist id="activity-users"></datalist>
+              <select id="activity-action" title="kind of change">
+                <option value="">everything</option>
+                <option value="lab">labs</option>
+                <option value="node">nodes</option>
+                <option value="console">consoles</option>
+                <option value="run">runbook runs</option>
+                <option value="runbook">runbook edits</option>
+                <option value="store">Store</option>
+                <option value="template">templates</option>
+                <option value="settings">settings</option>
+                <option value="bridge">bridges</option>
+                <option value="user">users</option>
+                <option value="token">API tokens</option>
+                <option value="relay">API relay</option>
+                <option value="auth">sign-ins</option>
+              </select>
+              <label>from <input id="activity-from" type="date" /></label>
+              <label>to <input id="activity-to" type="date" /></label>
+              <button type="submit">show</button>
+              <a id="activity-csv" href="/api/audit.csv">export CSV</a>
+              <button type="button" id="activity-chart-btn" title="changes per user, as a chart">most active</button>
+            </form>
+            <div id="activity-chart" class="activity-chart hidden"></div>
+            <div id="activity-list" class="activity-list"></div>
+            <button type="button" id="activity-more" class="hidden">show more</button>
+            <div id="activity-message" class="labs-message"></div>
+          </div>
+
+          <div class="settings-panel hidden" data-panel="backup">
+            <div class="settings-section-title">Backup to a Git repository</div>
+            <div class="dim" style="font-size:0.75rem; margin-bottom:0.6rem;">
+              Each backup is one commit to a folder of a GitHub, GitHub
+              Enterprise or Forgejo / Gitea repository: every lab file, every
+              runbook version, the activity log, and settings without their
+              secrets. The folder is replaced each time, so the repository's
+              history is the backup history. Never included: the Store (passwords, licences, keys,
+              saved configs), the Proxmox token or password, password hashes,
+              or the access token below. Use a token that can only write to
+              this one repository.
+            </div>
+            <form id="backup-form">
+              <div class="backup-row">
+                <label style="flex:3">Repository URL <input id="backup-repo" type="text" placeholder="https://git.example.com/team/labber.git" autocomplete="off" /></label>
+                <label>Server
+                  <select id="backup-server">
+                    <option value="auto">auto-detect</option>
+                    <option value="github">GitHub / GitHub Enterprise</option>
+                    <option value="forgejo">Forgejo / Gitea</option>
+                  </select>
+                </label>
+              </div>
+              <div class="backup-row">
+                <label>Branch <input id="backup-branch" type="text" autocomplete="off" /></label>
+                <label>Folder <input id="backup-folder" type="text" autocomplete="off" title="one name; use a different one per labber instance" /></label>
+              </div>
+              <label>Access token (PAT) <input id="backup-token" type="password" autocomplete="new-password" /></label>
+              <label class="checkbox-label"><input type="checkbox" id="backup-verify-tls" /> verify the server's TLS certificate</label>
+              <label>Trusted certificate (PEM, optional -- the server's own certificate or its CA, for a self-signed server)
+                <textarea id="backup-ca" rows="3" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+              </label>
+              <label class="checkbox-label"><input type="checkbox" id="backup-runs" /> also include run history (redacted run logs)</label>
+
+              <div class="settings-section-title">Schedule</div>
+              <div class="backup-row">
+                <label>Frequency
+                  <select id="backup-frequency">
+                    <option value="monthly">monthly</option>
+                    <option value="weekly">weekly</option>
+                    <option value="off">off (manual only)</option>
+                  </select>
+                </label>
+                <label>Day <select id="backup-day"></select></label>
+                <label>Time <input id="backup-time" type="time" /></label>
+              </div>
+              <div id="backup-next" class="dim" style="font-size:0.75rem;"></div>
+
+              <div class="settings-actions">
+                <button type="submit">save</button>
+                <button type="button" id="backup-test-btn">test connection</button>
+                <button type="button" id="backup-run-btn">back up now</button>
+              </div>
+              <div id="backup-message" class="labs-message"></div>
+            </form>
+            <div class="settings-section-title">Last backup</div>
+            <div id="backup-last" class="settings-subsection dim" style="font-size:0.8rem;"></div>
+          </div>
+
           <div class="settings-panel hidden" data-panel="about">
             <div class="settings-section-title">About</div>
             <div class="settings-subsection">
@@ -599,6 +709,8 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
   <script src="js/labs-wizard.js"></script>
   <script src="js/labs-stream.js"></script>
   <script src="js/labs-editor.js"></script>
+  <script src="js/labs-transfer.js"></script>
+  <script src="js/labs-history.js"></script>
   <script src="js/gui.js"></script>
   <script src="js/topology-style.js"></script>
   <script src="js/topology-info.js"></script>
@@ -611,6 +723,10 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
   <script src="js/settings-api.js"></script>
   <script src="js/settings-relay.js"></script>
   <script src="js/settings-users.js"></script>
+  <script src="js/settings-activity.js"></script>
+  <script src="js/settings-activity-chart.js"></script>
+  <script src="js/settings-backup.js"></script>
+  <script src="js/backup-banner.js"></script>
   <script src="js/templates.js"></script>
   <script src="js/apihelp.js"></script>
   <script src="js/runbooks-core.js"></script>

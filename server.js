@@ -33,6 +33,11 @@ const { buildStoreRoutes } = require('./routes/store');
 const { buildPresenceRoutes } = require('./routes/presence');
 const { buildReservationsRoutes } = require('./routes/reservations');
 const { buildTemplateCatalogRoutes } = require('./routes/template-catalog');
+const { buildAuditRoutes } = require('./routes/audit');
+const { buildLabTransferRoutes } = require('./routes/lab-transfer');
+const { buildBackupRoutes } = require('./routes/backup');
+const backupSchedule = require('./lib/backup/schedule');
+const { auditMiddleware } = require('./lib/audit/middleware');
 
 hostStats.start();
 seedBuiltins();
@@ -75,6 +80,8 @@ app.get('/healthz', (req, res) => res.json({ ok: true }));
 // configurations as text entries (everything here is behind a login).
 app.use(express.json({ limit: '10mb' }));
 app.use(sessionMiddleware);
+// Records every change made through /api/* -- see lib/audit/middleware.js.
+app.use(auditMiddleware);
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 app.get('/login', (req, res) => {
@@ -106,6 +113,9 @@ app.use(buildStoreRoutes({ requireAuth }));
 app.use(buildPresenceRoutes({ requireAuth }));
 app.use(buildReservationsRoutes({ requireAuth }));
 app.use(buildTemplateCatalogRoutes({ requireAuth }));
+app.use(buildAuditRoutes({ requireAuth }));
+app.use(buildLabTransferRoutes({ requireAuth }));
+app.use(buildBackupRoutes({ requireAuth }));
 
 // Unauthenticated, gated by its own enabled toggle -- see lib/public-routes.js.
 app.use(buildPublicRoutes({ apiSettings, getStats }));
@@ -182,3 +192,4 @@ server.listen(PORT, () => {
 });
 
 guiProxy.start();
+backupSchedule.start(); // Settings -> Backup's monthly / weekly backups (lib/backup/schedule.js)

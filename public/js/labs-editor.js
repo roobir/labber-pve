@@ -20,6 +20,8 @@
   let latestStatuses = {}; // /api/status from the last list load, for reservation notices
   const destroyBtn = document.getElementById('labs-destroy-btn');
   const deleteBtn = document.getElementById('labs-delete-btn');
+  const exportBtn = document.getElementById('labs-export-btn'); // export + duplicate: wired in labs-transfer.js
+  const duplicateBtn = document.getElementById('labs-duplicate-btn');
   const messageEl = document.getElementById('labs-message');
   const outputEl = document.getElementById('labs-output');
 
@@ -43,6 +45,8 @@
     bootstrapBtn.disabled = !enabled;
     destroyBtn.disabled = !enabled;
     deleteBtn.disabled = !enabled;
+    exportBtn.disabled = !enabled;
+    duplicateBtn.disabled = !enabled;
   }
 
   // Deleting the file itself is distinct from destroy() (which only tears
@@ -196,6 +200,7 @@
     yamlEl.value = content;
     setEditingEnabled(true);
     renderReservation();
+    window.LabsHistory.show(name);
     follow(name); // its latest deploy/destroy/... output, if the server has one
   }
 
@@ -211,6 +216,7 @@
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || 'save failed');
       setMessage('saved');
+      window.LabsHistory.show(currentLab);
     } catch (err) {
       setMessage(err.message, true);
     }
@@ -284,6 +290,7 @@
           const itemEl = Array.from(listEl.querySelectorAll('.labs-list-item')).find((el) => el.textContent === lab);
           if (itemEl) itemEl.classList.add('active');
         });
+        if (lab === currentLab) window.LabsHistory.show(lab);
       },
     });
   }
@@ -295,6 +302,7 @@
     yamlEl.value = '';
     setEditingEnabled(false);
     setMessage('');
+    window.LabsHistory.show(null);
     window.LabsWizard.close();
     loadList();
     setTimeout(() => fitAddon && fitAddon.fit(), 0);
@@ -341,5 +349,5 @@
 
   newLabBtn.addEventListener('click', () => window.LabsWizard.open());
 
-  window.LabsEditor = { loadList, selectLab };
+  window.LabsEditor = { loadList, selectLab, current: () => currentLab, setMessage };
 })();

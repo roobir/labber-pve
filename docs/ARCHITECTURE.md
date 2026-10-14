@@ -23,9 +23,22 @@ lib/
                             automation/API clients (see docs/ADVANCED.md)
   api-tokens.js          -- bearer tokens gating api-relay.js
   auth.js               -- session-based multi-user auth
+  client-ip.js          -- the request's source address (login throttling, IP allow-list, audit)
+  audit/                -- activity log: log.js (append-only JSONL per day + query),
+                            actions.js (REST call -> named action, allow-listed fields),
+                            middleware.js (records every /api/* change), summary.js
+                            (changes per user for the "most active" chart)
+  backup/               -- Settings -> Backup: collect.js (allow-listed files, no secrets),
+                            push.js (one commit per backup) via push-github.js (git-data API)
+                            or push-forgejo.js (change-files API), git-api.js (REST client +
+                            server detection), schedule.js, health.js, run.js, settings.js
+                            (see docs/BACKUP.md)
+  lab-transfer.js       -- lab export (exact / clean copy) and import as a new lab
+  lab-import-check.js   -- what an imported lab needs that this labber lacks
 runbooks/builtin/       -- runbooks shipped in the image, seeded into app storage on boot
 public/                 -- dashboard frontend
 labs/                   -- your *.lab.yml topology files live here (bind-mounted/PVC'd in)
+test/                   -- unit tests, `npm test` (node:test, no extra dependencies)
 k8s/                    -- Deployment/Service/PVC/Secret-template for k3s or OpenShift
 ```
 

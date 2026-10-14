@@ -7,7 +7,8 @@ for it to come back — the same steps, every time, for anyone.
 
 Open them from the **runbooks** button in the header. Three tabs:
 
-- **Library** — every runbook and every version of it.
+- **Library**: one card per runbook, showing its **default** version and any
+  newer drafts. Older versions fold away behind a toggle, and stay runnable.
 - **Runs** — recent runs; click one to watch it live or read its log.
 - **Store** — the passwords and licenses runbooks use.
 
@@ -67,6 +68,10 @@ later step.
 - Every locked version stays visible and runnable by everyone. Run defaults
   to the highest locked version; pick another from the dropdown.
 - Drafts are visible to, and editable by, everyone.
+- The **default** badge in the Library marks the version that runs when a
+  lab's `bootstrap:` entry or a run names no version: the highest locked
+  version, else the highest draft. Hover over a version's description to
+  see its changelog.
 
 Files live in `LABS_DIR/.runbooks/<name>/<version>.yml` plus a
 `.meta.json`. To back up, copy that directory. An admin on the host can
