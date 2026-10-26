@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1
+
+### Security
+- Node.js pinned to 24.22.1 (`node:24.22.1-alpine`) for a Node.js security
+  fix. Images up to 0.4.0 used the moving `node:24-alpine` tag and were
+  built on Node 24.21.0. Check a running container with `node -v`.
+
+### Upgrading
+- No changes to the app, settings or the `/labs` volume: pull `:0.4.1` and
+  recreate the container.
+
 ## 0.4.0
 
 ### Added

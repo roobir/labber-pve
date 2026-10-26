@@ -5,7 +5,7 @@
 # dependency here is plain JavaScript (no native addons), and it avoids running
 # Node under QEMU when cross-building the arm64 image, which is slow and has
 # crashed with "Illegal instruction" on CI runners.
-FROM --platform=$BUILDPLATFORM node:24-alpine AS build
+FROM --platform=$BUILDPLATFORM node:24.22.1-alpine AS build
 
 WORKDIR /app
 
@@ -28,7 +28,7 @@ RUN mkdir -p /labs/.state && \
 
 # Final image: just the files above (ownership and permissions are carried
 # over by COPY), so there is no RUN step left to emulate on another platform.
-FROM node:24-alpine
+FROM node:24.22.1-alpine
 
 WORKDIR /app
 
