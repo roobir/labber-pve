@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.4.2
+
+### Added
+- **Per-template size for the generic kinds**: Generic Linux (qcow2) and
+  Generic Linux (ISO install) ask for cores and memory when building a
+  template version (blank keeps 2 cores / 2048 MB), so a large and a small
+  appliance can share one kind. Settings -> Templates shows each version's
+  size, and the new-lab wizard's hints follow the version a node picks.
+  Vendor kinds keep their fixed profile; set their size per node in the lab.
+- A template's own size (built, edited with "edit hw", or added by hand from
+  Proxmox) is now what its clones get and what `update` compares against.
+
+### Fixed
+- `update` no longer puts a vendor profile's cores/memory back on clones of
+  a template whose hardware was changed with "edit hw". Templates edited
+  before 0.4.2: open "edit hw" and save once so labber-pve records the size.
+- web rp: the F5 home page no longer shows the whole GUI nested inside its
+  own content area. Logging in through the embedded view is unchanged.
+- Finishing an ISO-installed template now deletes the installer ISO that
+  labber-pve uploaded for it (only that file; a failed delete is a warning).
+- `TEMPLATE_ID_SONIC_VS` is read at first start like the other kinds.
+
+### Security
+- Changes and websockets sent from another site's page (including a lab
+  appliance's own web UI under the web rp domain, which is the same site)
+  are refused, so a page can't act with a signed-in user's session cookie.
+  Scripts and curl (no `Origin` header) are unaffected.
+- The client address used for the login lockout, the public-stats IP
+  allow-list and the activity log is read from `X-Real-IP` /
+  `X-Forwarded-For` only when the connection comes from a private or
+  loopback address (a reverse proxy or ingress) or `TRUST_PROXY` is set.
+  Behind a proxy nothing changes; a client connecting from a public address
+  can no longer pick its own IP.
+- Dependencies updated (undici TLS-validation bypass, multer, body-parser,
+  qs, follow-redirects): `npm audit` reports 0 vulnerabilities.
+
+### Changed
+- Settings, users, API tokens, lab files and lab state are written to a temp
+  file and renamed into place, so a crash or full disk can't leave them
+  half-written. A damaged `proxmox.json`, `users.json` or
+  `api-tokens.json` now stops with a clear error instead of being replaced
+  by defaults on the next save (which could wipe every user).
+- The terminal (xterm) and topology (cytoscape) libraries are served by
+  labber-pve itself, pinned in `package.json`, instead of from a CDN:
+  consoles and the topology view work on a network without internet access.
+- API relay: a token that passed is remembered for a minute (by its hash), so
+  a burst of relay calls pays for the bcrypt check once; revoking a token
+  takes effect immediately.
+- UI: native controls (number boxes, file pickers, date pickers) follow the
+  dark theme; labs that aren't deployed are one line each on the dashboard;
+  long lab names wrap after a hyphen; destroy and delete are red.
+
+### Upgrading
+- No settings or `/labs` volume changes: pull `:0.4.2` and recreate the
+  container. Signed-in users are signed out by the restart, as before.
+- A file in `/labs/.config` that is not valid JSON now prevents sign-in or
+  Proxmox access with an error naming the file, instead of being silently
+  reset. Restore it from a backup (Settings -> Backup) or fix it by hand.
+- Behind a reverse proxy on a *public* address, set `TRUST_PROXY=1` so the
+  real client address is still used.
+
 ## 0.4.1
 
 ### Security

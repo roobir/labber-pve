@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>labber-pve</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
+  <link rel="stylesheet" href="vendor/xterm/css/xterm.css" />
   <link rel="stylesheet" href="css/style.css" />
   <link rel="stylesheet" href="css/runbooks.css" />
 </head>
@@ -676,6 +676,11 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
           <label id="tplbuild-disksize-row" class="hidden">Disk size (GB) -- blank disk for the installer to partition
             <input id="tplbuild-disksize" type="number" min="1" placeholder="65" style="width:8rem" />
           </label>
+          <label id="tplbuild-hw-row" class="vmid-range-row hidden">
+            <span>Size (blank = kind default)</span>
+            <input id="tplbuild-cores" type="number" min="1" placeholder="cores" style="width:6rem" />
+            <input id="tplbuild-memory" type="number" min="1" step="256" placeholder="memory MB" style="width:8rem" />
+          </label>
           <div class="settings-actions">
             <button type="submit" id="tplbuild-start-btn">upload &amp; build</button>
           </div>
@@ -695,9 +700,9 @@ curl -H "X-Labber-Relay-Token: lbr_...token..." \
 
   <div id="taskbar" class="taskbar hidden"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/cytoscape@3/dist/cytoscape.min.js"></script>
+  <script src="vendor/xterm/lib/xterm.js"></script>
+  <script src="vendor/xterm-addon-fit/lib/addon-fit.js"></script>
+  <script src="vendor/cytoscape/cytoscape.min.js"></script>
   <script src="js/window-manager.js"></script>
   <script src="js/terminal-fit.js"></script>
   <script src="js/terminal.js"></script>

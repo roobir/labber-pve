@@ -55,9 +55,10 @@
     // an explicit value, just redrawn whenever the kind selection changes.
     const coresEl = row.querySelector('.wizard-node-cores');
     const memoryEl = row.querySelector('.wizard-node-memory');
+    // A picked version shows that version's own size (versionHw).
     function updateHwPlaceholders() {
       const kindInfo = state.kinds.find((k) => k.kind === kindSel.value);
-      const hw = kindInfo && kindInfo.hw;
+      const hw = kindInfo && ((versionSel.value && kindInfo.versionHw && kindInfo.versionHw[versionSel.value]) || kindInfo.hw);
       coresEl.placeholder = hw ? `cores (${hw.cores})` : 'cores';
       memoryEl.placeholder = hw ? `memory MB (${hw.memory})` : 'memory MB';
     }
@@ -68,10 +69,11 @@
       renderNicSummary();
     });
     kindSel.addEventListener('change', () => {
-      updateHwPlaceholders();
       updateVersionOptions();
+      updateHwPlaceholders();
       renderNicSummary();
     });
+    versionSel.addEventListener('change', updateHwPlaceholders);
     row.querySelector('.wizard-row-remove').addEventListener('click', () => {
       row.remove();
       refreshEndpointNodeSelects();

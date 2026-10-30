@@ -202,6 +202,25 @@ an ISO-installed template, the ISO stays mounted for the whole install;
 the VM to boot from its disk before templating, so clones never depend on
 the ISO file.
 
+### Sizing a generic template (cores / memory)
+
+The two generic kinds (**Generic Linux (qcow2)** and **Generic Linux (ISO
+install)**) cover very different boxes under one kind -- a Zabbix appliance
+and a FreeRADIUS server need different sizes. For those kinds the templates
+modal shows **cores** and **memory (MB)**: the VM is created with them, and
+they become that version's own size. Leave either blank for the kind's
+default (2 cores, 2048 MB). Vendor kinds keep their profile's size at build
+time; size those per node in the lab instead (`cores:` / `memory:`).
+
+A template's size is kept by labber-pve per template vmid (`templateHw` in
+`.config/proxmox.json`), from the build, from **edit hw**, or read from
+Proxmox when a hand-built template is added with **add version**. Each
+version's size is shown in Settings -> Templates and as the lab wizard's
+cores/memory placeholders. A node with no `cores:` / `memory:` gets its
+template version's size, and **update** compares against that size rather
+than the kind's default, so it no longer puts the profile's numbers back on
+a template whose hardware was edited.
+
 Two hardware-profile fields worth knowing about beyond the obvious
 ones: `nicModel` (default `virtio`) — some appliances need `e1000`
 specifically; and `scsihw` being optional — a SATA disk bus needs no

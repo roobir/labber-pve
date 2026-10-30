@@ -54,7 +54,7 @@ immediately with no restart.
 
 ```bash
 # 1. Generate the two required secrets (no local Node.js needed)
-podman run --rm ghcr.io/roobir/labber-pve:0.4.1 \
+podman run --rm ghcr.io/roobir/labber-pve:0.4.2 \
   node -e "console.log(require('bcryptjs').hashSync('yourpassword', 10))"   # DASHBOARD_PASSWORD_HASH
 openssl rand -hex 32                                                         # SESSION_SECRET
 
@@ -77,7 +77,7 @@ podman run -d --name labber-pve \
 Everything the app creates (settings, users, the Store, runbooks, lab
 state) lives under `/labs`, so keep that volume across upgrades. To
 update, pull the new image and recreate the container. Pin a version tag
-(`:0.4.1`) rather than `:latest` for anything you depend on.
+(`:0.4.2`) rather than `:latest` for anything you depend on.
 
 k3s/OpenShift: `kubectl apply -f k8s/pvc.yaml`, fill in
 `k8s/secret-example.yaml` with real values and apply it as a Secret
@@ -97,7 +97,7 @@ nodes:
     kind: paloalto_panorama   # must match a key in lib/vendor-profiles.js
   pa-fw1:
     kind: paloalto_panos
-    cores: 8                  # optional -- overrides just this node's clone
+    cores: 8                  # optional -- overrides just this node's clone (default: its template version's size)
     memory: 16384              # optional, MB
     full: true                  # optional -- full clone instead of linked clone
 
@@ -195,7 +195,10 @@ appliance management interfaces:
 
 - **Every `/api/*` route, deploy/destroy, console, and websocket
   endpoints require a session** from a bcrypt-verified account.
-  Failed logins are throttled per source IP.
+  Failed logins are throttled per source IP. Changes and websockets
+  sent from another site's page (including a lab appliance's own web UI
+  under the web rp domain) are refused, so a page can't act with your
+  session cookie.
 - **The embedded-GUI reverse proxy (`web rp`) is deliberately
   unauthenticated** — it can't check a session, because the browser
   loads it from a different hostname than the dashboard's own cookie

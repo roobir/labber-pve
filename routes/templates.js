@@ -5,7 +5,7 @@ const multer = require('multer');
 const vendors = require('../lib/vendor-profiles');
 const templateBuilder = require('../lib/template-builder');
 const { throttledDiskStorage } = require('../lib/upload-throttle');
-const { preflight, sweepStaleUploads } = require('../lib/template-preflight');
+const { preflight, parseHwOverride, sweepStaleUploads } = require('../lib/template-preflight');
 
 // Builds a golden template from an uploaded qcow2/iso. Uploaded files land
 // transiently under labsDir/.tmp/uploads (disk storage, not memory -- these
@@ -46,7 +46,7 @@ function buildTemplatesRoutes({ requireAuth, labsDir }) {
   router.post('/api/templates/build', requireAuth, upload.single('qcow2'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded (field name must be "qcow2")' });
     const cleanup = () => fs.rm(req.file.path, { force: true }, () => {});
-    const { kind, name, vmid, diskSizeGB, replaceExisting } = req.body || {};
+    const { kind, name, vmid, diskSizeGB, replaceExisting, cores, memory } = req.body || {};
     const versionLabel = (req.body?.versionLabel || '').trim();
     if (!kind) {
       cleanup();
@@ -55,6 +55,11 @@ function buildTemplatesRoutes({ requireAuth, labsDir }) {
     if (!versionLabel) {
       cleanup();
       return res.status(400).json({ error: 'a version label is required' });
+    }
+    const { hwOverride, errors: hwErrors } = parseHwOverride(kind, { cores, memory });
+    if (hwErrors.length) {
+      cleanup();
+      return res.status(400).json({ error: hwErrors.join(' -- ') });
     }
     // Checked up front, before a possibly multi-GB/multi-minute build ever
     // starts -- finding out a label collided only at the final save step
@@ -77,6 +82,7 @@ function buildTemplatesRoutes({ requireAuth, labsDir }) {
         vmid: vmid || undefined, // blank string from the form -> auto-pick, not "invalid VMID """
         diskSizeGB: diskSizeGB ? parseInt(diskSizeGB, 10) : undefined,
         versionLabel,
+        hwOverride,
       });
       res.json({ jobId });
     } catch (err) {
@@ -104,8 +110,8 @@ function buildTemplatesRoutes({ requireAuth, labsDir }) {
     if (!vendors.getProfile(kind)) return res.status(400).json({ error: 'unknown device kind' });
     if (!versionLabel) return res.status(400).json({ error: 'a version label is required' });
     try {
-      await templateBuilder.finalizeTemplate(vmid, kind, versionLabel);
-      res.json({ ok: true, vmid });
+      const cleanup = await templateBuilder.finalizeTemplate(vmid, kind, versionLabel);
+      res.json({ ok: true, vmid, ...cleanup });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

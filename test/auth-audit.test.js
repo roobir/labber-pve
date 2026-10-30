@@ -13,7 +13,7 @@ const { login } = require('../lib/auth');
 
 function attempt(username, password, ip) {
   return new Promise((resolve) => {
-    const req = { body: { username, password }, headers: { 'x-real-ip': ip }, session: { regenerate: (cb) => cb() } };
+    const req = { body: { username, password }, socket: { remoteAddress: '10.16.0.9' }, headers: { 'x-real-ip': ip }, session: { regenerate: (cb) => cb() } };
     const res = { status(code) { this.code = code; return this; }, json(body) { resolve({ code: this.code || 200, body }); } };
     login(req, res);
   });

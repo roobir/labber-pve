@@ -144,7 +144,7 @@
 
   function notDeployedRow(labFile, labStatus) {
     const wrap = document.createElement('div');
-    wrap.className = 'lab-group';
+    wrap.className = 'lab-group not-deployed';
     const labName = labFile.replace(/\.lab\.yml$/, '');
     wrap.innerHTML = `
       <div class="lab-group-title">

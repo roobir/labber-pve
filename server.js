@@ -38,6 +38,7 @@ const { buildLabTransferRoutes } = require('./routes/lab-transfer');
 const { buildBackupRoutes } = require('./routes/backup');
 const backupSchedule = require('./lib/backup/schedule');
 const { auditMiddleware } = require('./lib/audit/middleware');
+const { sameOriginGuard, crossSiteReason } = require('./lib/same-origin');
 
 hostStats.start();
 seedBuiltins();
@@ -80,9 +81,18 @@ app.get('/healthz', (req, res) => res.json({ ok: true }));
 // configurations as text entries (everything here is behind a login).
 app.use(express.json({ limit: '10mb' }));
 app.use(sessionMiddleware);
+// Refuses changes sent by another site's page with this user's cookie -- see lib/same-origin.js.
+app.use(['/api', '/login', '/logout'], sameOriginGuard);
 // Records every change made through /api/* -- see lib/audit/middleware.js.
 app.use(auditMiddleware);
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+// The terminal and topology libraries, served from this app's own npm
+// dependencies (exact versions in package.json) instead of a CDN -- an office
+// network without internet access still gets working consoles and graphs.
+const vendorDir = (pkg) => path.join(__dirname, 'node_modules', pkg);
+app.use('/vendor/xterm', express.static(vendorDir('@xterm/xterm'), { index: false, maxAge: '7d' }));
+app.use('/vendor/xterm-addon-fit', express.static(vendorDir('@xterm/addon-fit'), { index: false, maxAge: '7d' }));
+app.use('/vendor/cytoscape', express.static(vendorDir('cytoscape/dist'), { index: false, maxAge: '7d' }));
 
 app.get('/login', (req, res) => {
   if (isAuthed(req)) return res.redirect('/');
@@ -152,6 +162,13 @@ const resStub = { getHeader: () => {}, setHeader: () => {}, end: () => {} };
 
 server.on('upgrade', (req, socket, head) => {
   if (!WS_PATHS.includes(req.url)) {
+    socket.destroy();
+    return;
+  }
+  const crossSite = crossSiteReason(req);
+  if (crossSite) {
+    console.warn(`same-origin: refused websocket ${req.url} -- ${crossSite}`);
+    socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
     socket.destroy();
     return;
   }

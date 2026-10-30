@@ -28,6 +28,7 @@
 .rb-badge {
   display: inline-block; font-size: 0.65rem; padding: 0.05rem 0.4rem;
   border: 1px solid var(--border); color: var(--dim); text-transform: uppercase; letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 .rb-badge.locked, .rb-badge.ok { border-color: var(--accent); color: var(--accent); }
 .rb-badge.draft, .rb-badge.running { border-color: #e5a50a; color: #e5a50a; }

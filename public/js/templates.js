@@ -32,6 +32,9 @@
   const fileEl = document.getElementById('tplbuild-file');
   const diskSizeRow = document.getElementById('tplbuild-disksize-row');
   const diskSizeEl = document.getElementById('tplbuild-disksize');
+  const hwRow = document.getElementById('tplbuild-hw-row');
+  const coresEl = document.getElementById('tplbuild-cores');
+  const memoryEl = document.getElementById('tplbuild-memory');
   const startBtn = document.getElementById('tplbuild-start-btn');
   const messageEl = document.getElementById('tplbuild-message');
   const logEl = document.getElementById('tplbuild-log');
@@ -107,6 +110,23 @@
       cachedKinds = [];
       setMessage('failed to load device kinds', true);
     }
+    updateHwRow();
+  }
+
+  // Generic kinds (customHw) are sized per template version: a Zabbix box
+  // and a FreeRADIUS box share a kind but not a size. Placeholders show the
+  // kind's default, which a blank field keeps.
+  function updateHwRow() {
+    const kindInfo = cachedKinds.find((k) => k.kind === kindEl.value);
+    const custom = !!(kindInfo && kindInfo.customHw);
+    hwRow.classList.toggle('hidden', !custom);
+    if (!custom) {
+      coresEl.value = '';
+      memoryEl.value = '';
+      return;
+    }
+    coresEl.placeholder = `cores (${kindInfo.defaultHw.cores})`;
+    memoryEl.placeholder = `memory MB (${kindInfo.defaultHw.memory})`;
   }
 
   // Proactively shows the "replace" checkbox as soon as the typed label
@@ -185,7 +205,9 @@
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || 'finalize failed');
-      setMessage(`done -- template vmid ${vmid} saved as "${currentKind}" version "${currentVersionLabel}"`);
+      const done = `done -- template vmid ${vmid} saved as "${currentKind}" version "${currentVersionLabel}"`;
+      if (body.isoWarning) setMessage(body.isoWarning, true);
+      else setMessage(body.removedIso ? `${done}; installer ISO removed` : done);
       finalizeRow.classList.add('hidden');
     } catch (err) {
       setMessage(err.message, true);
@@ -203,6 +225,8 @@
     vmidEl.disabled = !enabled;
     fileEl.disabled = !enabled;
     diskSizeEl.disabled = !enabled;
+    coresEl.disabled = !enabled;
+    memoryEl.disabled = !enabled;
   }
 
   function uploadFile(body) {
@@ -258,6 +282,8 @@
           fileName: file.name,
           fileSize: file.size,
           diskSizeGB: diskSizeEl.value.trim(),
+          cores: coresEl.value.trim(),
+          memory: memoryEl.value.trim(),
         }),
       });
       check = await res.json();
@@ -309,6 +335,8 @@
     if (isIsoSelected() && diskSizeEl.value.trim()) {
       body.append('diskSizeGB', diskSizeEl.value.trim());
     }
+    if (coresEl.value.trim()) body.append('cores', coresEl.value.trim());
+    if (memoryEl.value.trim()) body.append('memory', memoryEl.value.trim());
 
     try {
       const data = await uploadFile(body);
@@ -349,6 +377,7 @@
     diskSizeRow.classList.add('hidden');
     finalizeRow.classList.add('hidden');
     replaceRowEl.classList.add('hidden');
+    hwRow.classList.add('hidden');
     form.reset();
     loadKinds();
   }
@@ -378,6 +407,9 @@
   form.addEventListener('submit', start);
   fileEl.addEventListener('change', () => diskSizeRow.classList.toggle('hidden', !isIsoSelected()));
   finalizeBtn.addEventListener('click', finalize);
-  kindEl.addEventListener('change', checkVersionCollision);
+  kindEl.addEventListener('change', () => {
+    checkVersionCollision();
+    updateHwRow();
+  });
   versionEl.addEventListener('input', checkVersionCollision);
 })();

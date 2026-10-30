@@ -28,7 +28,7 @@ function fakeWs() {
   ws.send = (m) => ws.sent.push(JSON.parse(m));
   return ws;
 }
-const req = { session: { username: 'nico' }, headers: { 'x-real-ip': '192.0.2.5' } };
+const req = { session: { username: 'nico' }, socket: { remoteAddress: '10.16.0.9' }, headers: { 'x-real-ip': '192.0.2.5' } };
 const tick = () => new Promise((r) => setImmediate(r));
 
 test('opening and closing a console is recorded once each, with the duration', async () => {

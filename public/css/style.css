@@ -8,6 +8,9 @@
   --danger: #ff5f56;
   --border: #1c1c1c;
   --card-bg: #0d0d0d;
+  /* Native controls (number spinners, file buttons, date pickers,
+     checkboxes, scrollbars) draw in their dark variant. */
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -170,6 +173,7 @@ a:hover { text-decoration: underline; }
 .settings-body label.vmid-range-row span:first-child { color: var(--dim); font-size: 0.8rem; }
 .settings-body input[type="text"],
 .settings-body input[type="password"],
+.settings-body input[type="number"],
 .settings-body input[type="file"],
 .settings-body input:not([type]),
 .settings-body select {
@@ -325,6 +329,7 @@ a:hover { text-decoration: underline; }
   white-space: pre-wrap;
   word-break: break-all;
 }
+.tplbuild-log:empty { display: none; }
 
 .apihelp-window { width: min(700px, 95vw); height: auto; max-height: 90vh; }
 .apihelp-code {
@@ -407,6 +412,10 @@ a:hover { text-decoration: underline; }
   margin-bottom: 1rem;
 }
 .lab-group-title .lab-group-name { color: var(--fg); font-weight: 700; }
+/* A lab that isn't deployed has no cards: one line, reserve beside the name. */
+.lab-group.not-deployed { display: flex; align-items: center; flex-wrap: wrap; gap: 0 1rem; padding-top: 0.6rem; }
+.lab-group.not-deployed .lab-group-title { flex: 1 1 18rem; border-bottom: none; margin: 0; padding: 0.3rem 0; }
+.lab-group.not-deployed .lab-reservation { margin: 0; }
 
 .grid {
   display: grid;
@@ -786,7 +795,7 @@ a:hover { text-decoration: underline; }
   font-size: 0.8rem;
   cursor: pointer;
   border-bottom: 1px solid var(--border);
-  word-break: break-all;
+  overflow-wrap: anywhere; /* long names wrap after a hyphen first, mid-word only if they must */
 }
 .labs-list-item .dot { flex-shrink: 0; }
 .labs-list-item:hover { color: var(--accent); }
@@ -820,6 +829,7 @@ a:hover { text-decoration: underline; }
   cursor: pointer;
 }
 .labs-editor-actions button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.labs-editor-actions button.danger:not(:disabled) { color: var(--danger); }
 .labs-editor-actions button.danger:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
 .labs-editor-actions button:disabled { opacity: 0.4; cursor: default; }
 .labs-editor-actions { position: relative; }
@@ -922,7 +932,7 @@ a:hover { text-decoration: underline; }
   margin-bottom: 0.5rem;
   flex-wrap: wrap;
 }
-.wizard-row input[type="text"], .wizard-row select,
+.wizard-row input[type="text"], .wizard-row input[type="number"], .wizard-row select,
 .wizard-link-top input[type="text"], .wizard-link-top select,
 .wizard-link-bridge-create input[type="text"] {
   background: transparent;
@@ -932,7 +942,7 @@ a:hover { text-decoration: underline; }
   padding: 0.4rem 0.5rem;
   font-size: 0.8rem;
 }
-.wizard-row input[type="text"]:focus, .wizard-row select:focus,
+.wizard-row input[type="text"]:focus, .wizard-row input[type="number"]:focus, .wizard-row select:focus,
 .wizard-link-top input[type="text"]:focus, .wizard-link-top select:focus,
 .wizard-link-bridge-create input[type="text"]:focus { outline: none; border-color: var(--accent); }
 
@@ -1013,6 +1023,7 @@ a:hover { text-decoration: underline; }
 .tpl-actions button { margin-right: 0.25rem; font-size: 0.72rem; }
 .tpl-default { color: var(--accent); }
 .tpl-bad, .tpl-check-error { color: var(--danger); }
+div.tpl-bad { font-size: 0.8rem; margin: 0.4rem 0; }
 .tpl-check-warn { color: #f5a524; }
 .tpl-check-ok { color: var(--accent); }
 .tpl-check { font-size: 0.76rem; margin: 0.3rem 0; }

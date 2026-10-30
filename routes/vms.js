@@ -79,6 +79,9 @@ function buildVmsRoutes({ requireAuth }) {
 
     try {
       await proxmox.setVmConfig(vmid, params);
+      // The template's size is what its clones get and what a lab update
+      // diffs against -- without this, update put the profile's numbers back.
+      configStore.setTemplateHw(vmid, { cores, memory });
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ error: err.message });

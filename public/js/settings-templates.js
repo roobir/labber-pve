@@ -70,6 +70,7 @@
     return h('tr', {},
       labelCell,
       h('td', {}, `${v.vmid}`, v.name ? h('span', { class: 'dim' }, ` · ${v.name}`) : null, status),
+      h('td', { class: 'dim' }, `${v.cores} cpu · ${v.memory} MB`),
       h('td', { class: 'dim', title: v.usedBy.join('\n') }, v.usedBy.length ? `${v.usedBy.length} node(s)` : '--'),
       h('td', { class: 'tpl-actions' },
         v.isDefault ? null : h('button', { type: 'button', onclick: () => edit(k.kind, msgEl, 'POST', `${url}/default`) }, 'make default'),
@@ -108,7 +109,7 @@
       h('span', { class: 'dim' }, k.versions.length > 1 ? ` · ${k.versions.length} versions` : ''),
       problems ? h('span', { class: 'tpl-bad' }, ` · ${problems} problem(s)`) : null);
     if (!open) return h('div', { class: 'tpl-kind' }, head);
-    const table = h('table', { class: 'tpl-versions' }, h('tr', {}, h('th', {}, 'version'), h('th', {}, 'template'), h('th', {}, 'used by'), h('th', {})),
+    const table = h('table', { class: 'tpl-versions' }, h('tr', {}, h('th', {}, 'version'), h('th', {}, 'template'), h('th', {}, 'size'), h('th', {}, 'used by'), h('th', {})),
       ...k.versions.map((v) => versionRow(k, v, msgEl, checkEl)));
     return h('div', { class: 'tpl-kind open' }, head, k.versions.length ? table : h('div', { class: 'dim' }, 'no versions yet -- build one from the templates window, or add one below'), checkEl, addForm(k, msgEl), msgEl);
   }

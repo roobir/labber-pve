@@ -66,6 +66,7 @@
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || 'save failed');
       setHwMessage('saved');
+      window.SettingsTemplates.renderTemplateRows(); // the versions table shows each size
     } catch (err) {
       setHwMessage(err.message, true);
     }
